@@ -33,8 +33,9 @@ for (auto& extension: extensionList) {\
 aout << std::endl;\
 }
 
-//! Color for cornflower blue. Can be sent directly to glClearColor
-#define CORNFLOWER_BLUE 100 / 255.f, 149 / 255.f, 237 / 255.f, 1
+//! Color negro para el fondo.
+#define BACKGROUNDBLACK 0.0f, 0.0f, 0.0f, 1.0f
+
 
 // Vertex shader, you'd typically load this from assets
 static const char *vertex = R"vertex(#version 300 es
@@ -229,7 +230,7 @@ void Renderer::initRenderer() {
     shader_->activate();
 
     // setup any other gl related global states
-    glClearColor(CORNFLOWER_BLUE);
+    glClearColor(BACKGROUNDBLACK);
 
     // enable alpha globally for now, you probably don't want to do this in a game
     glEnable(GL_BLEND);
