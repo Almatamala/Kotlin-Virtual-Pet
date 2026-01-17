@@ -72,6 +72,13 @@ float Pet::getYOffset() const {
     return 0.0f;
 }
 
+float Pet::getFloatingOffset() const {
+    // EVE no camina, flota. Añade un balanceo suave en 8 (Lissajous)
+    float x = std::sin(time_ * 0.5f) * 0.05f;
+    float y = std::cos(time_ * 0.8f) * 0.05f;
+    return y; // Usa esto en tu matriz de modelo
+}
+
 std::string Pet::getMoodString() const {
     switch (getMoodState()) {
         case PetMood::SAD:     return "Triste";

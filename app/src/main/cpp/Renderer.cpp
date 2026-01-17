@@ -67,6 +67,45 @@ void main() {
 }
 )fragment";
 
+// ============ SHADERS PARA LOS OJOS ============
+
+// Vertex Shader para los ojos
+static const char* eyeVertexShader = R"(#version 300 es
+precision mediump float;
+
+layout(location = 0) in vec2 aPosition;
+
+uniform vec2 uPosition;
+uniform float uScale;
+uniform float uEyeOpenness;
+
+out vec2 vLocalPos;
+
+void main() {
+    vec2 scaledPos = aPosition * uScale;
+    scaledPos.y *= uEyeOpenness;
+    vec2 finalPos = scaledPos + uPosition;
+    gl_Position = vec4(finalPos, 0.0, 1.0);
+    vLocalPos = aPosition;
+}
+)";
+
+// Fragment Shader para los ojos
+static const char* eyeFragmentShader = R"(#version 300 es
+precision mediump float;
+
+in vec2 vLocalPos;
+out vec4 FragColor;
+
+uniform vec3 uColor;
+
+void main() {
+    float dist = length(vLocalPos);
+    float alpha = 1.0 - smoothstep(0.95, 1.0, dist);
+    FragColor = vec4(uColor, alpha);
+}
+)";
+
 /*!
  * Half the height of the projection matrix. This gives you a renderable area of height 4 ranging
  * from -2 to 2
@@ -86,6 +125,14 @@ static constexpr float kProjectionNearPlane = -1.f;
 static constexpr float kProjectionFarPlane = 1.f;
 
 Renderer::~Renderer() {
+    // Limpiar recursos de los ojos
+    delete leftEye_;
+    delete rightEye_;
+    if (eyeShaderProgram_) {
+        glDeleteProgram(eyeShaderProgram_);
+    }
+
+    // Limpiar recursos EGL existentes
     if (display_ != EGL_NO_DISPLAY) {
         eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (context_ != EGL_NO_CONTEXT) {
@@ -99,6 +146,126 @@ Renderer::~Renderer() {
         eglTerminate(display_);
         display_ = EGL_NO_DISPLAY;
     }
+}
+
+GLuint Renderer::createEyeShaderProgram() {
+    // Compilar vertex shader
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &eyeVertexShader, nullptr);
+    glCompileShader(vertexShader);
+
+    GLint success;
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetShaderInfoLog(vertexShader, 512, nullptr, infoLog);
+        aout << "Eye Vertex Shader Error: " << infoLog << std::endl;
+        return 0;
+    }
+
+    // Compilar fragment shader
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &eyeFragmentShader, nullptr);
+    glCompileShader(fragmentShader);
+
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetShaderInfoLog(fragmentShader, 512, nullptr, infoLog);
+        aout << "Eye Fragment Shader Error: " << infoLog << std::endl;
+        return 0;
+    }
+
+    // Linkear programa
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertexShader);
+    glAttachShader(program, fragmentShader);
+    glLinkProgram(program);
+
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetProgramInfoLog(program, 512, nullptr, infoLog);
+        aout << "Eye Shader Program Link Error: " << infoLog << std::endl;
+        return 0;
+    }
+
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    aout << "Eye shader program created successfully" << std::endl;
+    return program;
+}
+
+void Renderer::initEyes() {
+    aout << "=== Initializing Eyes ===" << std::endl;
+
+    // Crear el programa de shaders para los ojos
+    eyeShaderProgram_ = createEyeShaderProgram();
+    if (eyeShaderProgram_ == 0) {
+        aout << "ERROR: Failed to create eye shader program!" << std::endl;
+        return;
+    }
+
+    aout << "Eye shader program ID: " << eyeShaderProgram_ << std::endl;
+
+    // Crear los ojos (posiciones en espacio normalizado)
+    // Estos valores se ajustarán con el aspect ratio en renderEyes()
+    leftEye_ = new Eye(-0.3f, 0.0f, 0.25f);
+    rightEye_ = new Eye(0.3f, 0.0f, 0.25f);
+
+    leftEye_->init();
+    rightEye_->init();
+
+    aout << "=== Eyes initialized successfully ===" << std::endl;
+}
+
+void Renderer::renderEyes() {
+    // Verificar que el shader program es válido
+    if (eyeShaderProgram_ == 0) {
+        aout << "ERROR: Eye shader program is 0!" << std::endl;
+        return;
+    }
+
+    // PRUEBA: Limpiar con un color diferente para verificar que render() se llama
+    // Descomentar esta línea temporalmente para ver si al menos el fondo cambia
+    // glClearColor(0.2f, 0.0f, 0.2f, 1.0f); // Púrpura oscuro
+
+    // Calcular delta time
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
+    lastFrameTime_ = currentTime;
+
+    // Actualizar la lógica de la mascota
+    pet_.update(deltaTime);
+
+    // Obtener parámetros de animación
+    float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
+    float scale = pet_.getScale();
+    float yOffset = pet_.getYOffset();
+
+    // Log cada 60 frames (aprox 1 vez por segundo)
+    static int frameCount = 0;
+    if (frameCount++ % 60 == 0) {
+        aout << "Rendering eyes - openness: " << eyeOpenness
+             << ", scale: " << scale
+             << ", yOffset: " << yOffset << std::endl;
+    }
+
+    // Calcular aspect ratio para ajustar posiciones
+    float aspectRatio = (float)width_ / (float)height_;
+
+    // Ajustar posiciones de los ojos según aspect ratio
+    float eyeSpacing = 0.3f / aspectRatio; // Separación entre ojos
+    float leftX = -eyeSpacing;
+    float rightX = eyeSpacing;
+
+    leftEye_->setPosition(leftX, yOffset);
+    rightEye_->setPosition(rightX, yOffset);
+
+    // Dibujar los ojos
+    leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+    rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
 }
 
 void Renderer::render() {
@@ -131,17 +298,27 @@ void Renderer::render() {
         shaderNeedsNewProjectionMatrix_ = false;
     }
 
-    // clear the color buffer
+    // clear the color buffer (fondo negro)
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Render all the models. There's no depth testing in this sample so they're accepted in the
-    // order provided. But the sample EGL setup requests a 24 bit depth buffer so you could
-    // configure it at the end of initRenderer
+    // Habilitar blending para anti-aliasing de los ojos
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Renderizar los ojos animados
+    if (leftEye_ && rightEye_) {
+        renderEyes();
+    }
+
+    // Render all the models (si los necesitas más adelante)
+    // Los dejé comentados para que solo se vean los ojos
+    /*
     if (!models_.empty()) {
         for (const auto &model: models_) {
             shader_->drawModel(model);
         }
     }
+    */
 
     // Present the rendered image. This is an implicit glFlush.
     auto swapResult = eglSwapBuffers(display_, surface_);
@@ -236,8 +413,11 @@ void Renderer::initRenderer() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // get some demo models into memory
-    createModels();
+    // get some demo models into memory (comentado porque usaremos solo los ojos)
+    // createModels();
+
+    // Inicializar el sistema de ojos
+    initEyes();
 }
 
 void Renderer::updateRenderArea() {
@@ -319,6 +499,8 @@ void Renderer::handleInput() {
             case AMOTION_EVENT_ACTION_POINTER_DOWN:
                 aout << "(" << pointer.id << ", " << x << ", " << y << ") "
                      << "Pointer Down";
+                // Trigger touch en Pet
+                pet_.onTouch();
                 break;
 
             case AMOTION_EVENT_ACTION_CANCEL:
@@ -331,10 +513,15 @@ void Renderer::handleInput() {
                      << "Pointer Up";
                 break;
 
-            case AMOTION_EVENT_ACTION_MOVE:
+            case AMOTION_EVENT_ACTION_MOVE: {
                 // There is no pointer index for ACTION_MOVE, only a snapshot of
                 // all active pointers; app needs to cache previous active pointers
                 // to figure out which ones are actually moved.
+
+                // Calcular delta time para onHold
+                auto currentTime = std::chrono::high_resolution_clock::now();
+                float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
+
                 for (auto index = 0; index < motionEvent.pointerCount; index++) {
                     pointer = motionEvent.pointers[index];
                     x = GameActivityPointerAxes_getX(&pointer);
@@ -343,9 +530,13 @@ void Renderer::handleInput() {
 
                     if (index != (motionEvent.pointerCount - 1)) aout << ",";
                     aout << " ";
+
+                    // Trigger hold en Pet
+                    pet_.onHold(deltaTime);
                 }
                 aout << "Pointer Move";
                 break;
+            }
             default:
                 aout << "Unknown MotionEvent Action: " << action;
         }

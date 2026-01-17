@@ -21,6 +21,7 @@ public:
     bool isBlinking() const;
     float getScale() const;
     float getYOffset() const;
+    float getFloatingOffset() const;
 
 private:
     float moodLevel_;
