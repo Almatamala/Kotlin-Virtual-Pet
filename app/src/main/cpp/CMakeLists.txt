@@ -5,6 +5,10 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("kotlin_virtualpet")
 
+# Configurar C++17 para usar std::clamp en Pet.cpp
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Creates your game shared library. The name must be the same as the
 # one used for loading in your Kotlin/Java or AndroidManifest.txt files.
 add_library(kotlin_virtualpet SHARED
@@ -14,7 +18,8 @@ add_library(kotlin_virtualpet SHARED
         Shader.cpp
         TextureAsset.cpp
         Utility.cpp
-        Pet.cpp)
+        Pet.cpp
+        Eye.cpp)
 
 # Searches for a package provided by the game activity dependency
 find_package(game-activity REQUIRED CONFIG)

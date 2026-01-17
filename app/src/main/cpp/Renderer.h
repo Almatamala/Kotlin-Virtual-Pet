@@ -3,9 +3,12 @@
 
 #include <EGL/egl.h>
 #include <memory>
+#include <chrono>
 
 #include "Model.h"
 #include "Shader.h"
+#include "Eye.h"
+#include "Pet.hpp"
 
 struct android_app;
 
@@ -21,8 +24,13 @@ public:
             context_(EGL_NO_CONTEXT),
             width_(0),
             height_(0),
-            shaderNeedsNewProjectionMatrix_(true) {
+            shaderNeedsNewProjectionMatrix_(true),
+            leftEye_(nullptr),
+            rightEye_(nullptr),
+            eyeShaderProgram_(0),
+            pet_(50.0f) {
         initRenderer();
+        lastFrameTime_ = std::chrono::high_resolution_clock::now();
     }
 
     virtual ~Renderer();
@@ -38,6 +46,11 @@ public:
      * Renders all the models in the renderer
      */
     void render();
+
+    /*!
+     * Gets the Pet instance for external access
+     */
+    Pet& getPet() { return pet_; }
 
 private:
     /*!
@@ -58,6 +71,21 @@ private:
      */
     void createModels();
 
+    /*!
+     * Initializes the eye rendering system
+     */
+    void initEyes();
+
+    /*!
+     * Renders the animated eyes
+     */
+    void renderEyes();
+
+    /*!
+     * Compiles and links the eye shader program
+     */
+    GLuint createEyeShaderProgram();
+
     android_app *app_;
     EGLDisplay display_;
     EGLSurface surface_;
@@ -69,6 +97,13 @@ private:
 
     std::unique_ptr<Shader> shader_;
     std::vector<Model> models_;
+
+    // Sistema de ojos animados
+    Eye* leftEye_;
+    Eye* rightEye_;
+    GLuint eyeShaderProgram_;
+    Pet pet_;
+    std::chrono::high_resolution_clock::time_point lastFrameTime_;
 };
 
 #endif //ANDROIDGLINVESTIGATIONS_RENDERER_H
