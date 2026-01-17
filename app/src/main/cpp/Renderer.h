@@ -8,6 +8,7 @@
 #include "Model.h"
 #include "Shader.h"
 #include "Eye.h"
+#include "Mouth.h"
 #include "Pet.hpp"
 
 struct android_app;
@@ -27,6 +28,7 @@ public:
             shaderNeedsNewProjectionMatrix_(true),
             leftEye_(nullptr),
             rightEye_(nullptr),
+            mouth_(nullptr),
             eyeShaderProgram_(0),
             pet_(50.0f) {
         initRenderer();
@@ -101,6 +103,7 @@ private:
     // Sistema de ojos animados
     Eye* leftEye_;
     Eye* rightEye_;
+    Mouth* mouth_;
     GLuint eyeShaderProgram_;
     Pet pet_;
     std::chrono::high_resolution_clock::time_point lastFrameTime_;

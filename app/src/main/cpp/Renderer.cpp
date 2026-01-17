@@ -10,6 +10,8 @@
 #include "Shader.h"
 #include "Utility.h"
 #include "TextureAsset.h"
+#include "Eye.h"
+#include "Mouth.h"
 
 //! executes glGetString and outputs the result to logcat
 #define PRINT_GL_STRING(s) {aout << #s": "<< glGetString(s) << std::endl;}
@@ -125,9 +127,10 @@ static constexpr float kProjectionNearPlane = -1.f;
 static constexpr float kProjectionFarPlane = 1.f;
 
 Renderer::~Renderer() {
-    // Limpiar recursos de los ojos
+    // Limpiar recursos de los ojos y boca
     delete leftEye_;
     delete rightEye_;
+    delete mouth_;
     if (eyeShaderProgram_) {
         glDeleteProgram(eyeShaderProgram_);
     }
@@ -198,7 +201,7 @@ GLuint Renderer::createEyeShaderProgram() {
 }
 
 void Renderer::initEyes() {
-    aout << "=== Initializing Eyes ===" << std::endl;
+    aout << "=== Initializing Face Components ===" << std::endl;
 
     // Crear el programa de shaders para los ojos
     eyeShaderProgram_ = createEyeShaderProgram();
@@ -209,15 +212,22 @@ void Renderer::initEyes() {
 
     aout << "Eye shader program ID: " << eyeShaderProgram_ << std::endl;
 
-    // Crear los ojos (posiciones en espacio normalizado)
-    // Estos valores se ajustarán con el aspect ratio en renderEyes()
-    leftEye_ = new Eye(-0.3f, 0.0f, 0.25f);
-    rightEye_ = new Eye(0.3f, 0.0f, 0.25f);
+    // Crear los ojos circulares con grosor de línea especificado
+    // AJUSTE: El último parámetro controla el grosor
+    // Valores sugeridos: 0.02f (delgado), 0.03f (normal), 0.05f (grueso), 0.08f (muy grueso)
+    float lineThickness = 0.05f; // ← CAMBIA ESTE VALOR
+
+    leftEye_ = new Eye(-0.35f, 0.1f, 0.28f, EyeShape::CIRCLE, lineThickness);
+    rightEye_ = new Eye(0.35f, 0.1f, 0.28f, EyeShape::CIRCLE, lineThickness);
 
     leftEye_->init();
     rightEye_->init();
 
-    aout << "=== Eyes initialized successfully ===" << std::endl;
+    // Crear boca en forma de W
+    mouth_ = new Mouth(0.0f, -0.35f, 0.5f, 0.15f);
+    mouth_->init();
+
+    aout << "=== Face components initialized successfully ===" << std::endl;
 }
 
 void Renderer::renderEyes() {
@@ -226,10 +236,6 @@ void Renderer::renderEyes() {
         aout << "ERROR: Eye shader program is 0!" << std::endl;
         return;
     }
-
-    // PRUEBA: Limpiar con un color diferente para verificar que render() se llama
-    // Descomentar esta línea temporalmente para ver si al menos el fondo cambia
-    // glClearColor(0.2f, 0.0f, 0.2f, 1.0f); // Púrpura oscuro
 
     // Calcular delta time
     auto currentTime = std::chrono::high_resolution_clock::now();
@@ -244,28 +250,29 @@ void Renderer::renderEyes() {
     float scale = pet_.getScale();
     float yOffset = pet_.getYOffset();
 
-    // Log cada 60 frames (aprox 1 vez por segundo)
-    static int frameCount = 0;
-    if (frameCount++ % 60 == 0) {
-        aout << "Rendering eyes - openness: " << eyeOpenness
-             << ", scale: " << scale
-             << ", yOffset: " << yOffset << std::endl;
-    }
-
     // Calcular aspect ratio para ajustar posiciones
     float aspectRatio = (float)width_ / (float)height_;
 
-    // Ajustar posiciones de los ojos según aspect ratio
-    float eyeSpacing = 0.3f / aspectRatio; // Separación entre ojos
+    // AJUSTE: Controlar la separación entre los ojos
+    float eyeSpacing = 0.25f / aspectRatio; // CAMBIA ESTE VALOR
     float leftX = -eyeSpacing;
     float rightX = eyeSpacing;
+    float eyeY = 0.1f + yOffset;
 
-    leftEye_->setPosition(leftX, yOffset);
-    rightEye_->setPosition(rightX, yOffset);
+    // Posicionar ojos
+    leftEye_->setPosition(leftX, eyeY);
+    rightEye_->setPosition(rightX, eyeY);
 
-    // Dibujar los ojos
+    // Dibujar los ojos (contornos)
     leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
     rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+
+    // Dibujar la boca
+    if (mouth_) {
+        float mouthY = -0.35f + yOffset * 0.5f; // Boca se mueve menos que los ojos
+        mouth_->setPosition(0.0f, mouthY);
+        mouth_->draw(eyeShaderProgram_);
+    }
 }
 
 void Renderer::render() {
