@@ -1,6 +1,3 @@
-#ifndef PET_HPP
-#define PET_HPP
-
 #include <string>
 #include <algorithm>
 
@@ -12,16 +9,13 @@ public:
     void update(float deltaTime);
     void onTouch();
     void onHold(float deltaTime);
+    void onRelease(); // <--- Implementado
     void setMoodLevel(float level);
-    float getMoodLevel() const;
     PetMood getMoodState() const;
-    std::string getMoodString() const;
 
-    // Estos son los que alimentan al Renderer:
     bool isBlinking() const;
     float getScale() const;
     float getYOffset() const;
-    float getFloatingOffset() const;
 
 private:
     float moodLevel_;
@@ -29,6 +23,5 @@ private:
     float blinkTimer_;
     bool isBlinking_;
     float reactionTimer_;
+    bool isBeingHeld_; // Nueva bandera útil para estados de ánimo
 };
-
-#endif

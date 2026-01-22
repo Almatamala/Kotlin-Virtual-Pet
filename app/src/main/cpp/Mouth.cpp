@@ -47,22 +47,27 @@ void Mouth::draw(GLuint shaderProgram) {
     GLint scaleLoc = glGetUniformLocation(shaderProgram, "uScale");
     GLint opennessLoc = glGetUniformLocation(shaderProgram, "uEyeOpenness");
     GLint colorLoc = glGetUniformLocation(shaderProgram, "uColor");
-    GLint posAttrib = 0;
+
+    // NUEVOS UNIFORMS: Para que el shader no descarte los píxeles de la boca
+    GLint radiusLoc = glGetUniformLocation(shaderProgram, "uRadius");
+    GLint thicknessLoc = glGetUniformLocation(shaderProgram, "uThickness");
 
     glUniform2f(posLoc, posX, posY);
     glUniform1f(scaleLoc, 1.0f);
     glUniform1f(opennessLoc, 1.0f);
     glUniform3f(colorLoc, 0.0f, 1.0f, 1.0f); // Cyan
 
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glEnableVertexAttribArray(posAttrib);
-    glVertexAttribPointer(posAttrib, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    // Configuramos valores que "desactivan" el efecto de círculo
+    glUniform1f(radiusLoc, 100.0f);    // Radio gigante para que dist sea casi 0
+    glUniform1f(thicknessLoc, 1.0f);   // Grosor total para que no haya hueco central
 
-    // Dibujar como LINE_STRIP para la W
-    glLineWidth(8.0f); // Grosor de línea
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glEnableVertexAttribArray(0); // Usamos 0 explícitamente como en los ojos
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glLineWidth(12.0f);
     glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
 
-    glDisableVertexAttribArray(posAttrib);
+    glDisableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 

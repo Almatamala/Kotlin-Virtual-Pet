@@ -8,7 +8,8 @@ Pet::Pet(float initialMood)
           time_(0.0f),
           blinkTimer_(0.0f),
           isBlinking_(false),
-          reactionTimer_(0.0f) {}
+          reactionTimer_(0.0f),
+          isBeingHeld_(false) {}
 
 void Pet::update(float deltaTime) {
     time_ += deltaTime;
@@ -35,15 +36,21 @@ void Pet::onTouch() {
 }
 
 void Pet::onHold(float deltaTime) {
+    isBeingHeld_ = true;
     setMoodLevel(moodLevel_ + (15.0f * deltaTime));
+}
+
+void Pet::onRelease() {
+    isBeingHeld_ = false;
+    // Disparamos un temporizador de reacción al soltar
+    // Esto hace que el robot "salte" o se estire un poco al dejar de tocarlo
+    reactionTimer_ = 0.3f;
 }
 
 void Pet::setMoodLevel(float level) {
     // Si std::clamp te da error, asegúrate de compilar con C++17 en CMake
     moodLevel_ = std::clamp(level, 0.0f, 100.0f);
 }
-
-float Pet::getMoodLevel() const { return moodLevel_; }
 
 PetMood Pet::getMoodState() const {
     if (moodLevel_ < 25.0f) return PetMood::SAD;
@@ -66,25 +73,9 @@ float Pet::getYOffset() const {
     if (getMoodState() == PetMood::HAPPY) {
         return std::abs(std::sin(time_ * 5.0f)) * 0.2f;
     }
-    if (reactionTimer_ > 0.0f) {
-        return 0.1f;
+    // Si acaba de ser soltado (reactionTimer activo), da un pequeño brinco
+    if (reactionTimer_ > 0.0f && !isBeingHeld_) {
+        return 0.15f;
     }
     return 0.0f;
-}
-
-float Pet::getFloatingOffset() const {
-    // EVE no camina, flota. Añade un balanceo suave en 8 (Lissajous)
-    float x = std::sin(time_ * 0.5f) * 0.05f;
-    float y = std::cos(time_ * 0.8f) * 0.05f;
-    return y; // Usa esto en tu matriz de modelo
-}
-
-std::string Pet::getMoodString() const {
-    switch (getMoodState()) {
-        case PetMood::SAD:     return "Triste";
-        case PetMood::ANGRY:   return "Enojado";
-        case PetMood::NEUTRAL: return "Neutral";
-        case PetMood::HAPPY:   return "Feliz";
-        default:               return "Desconocido";
-    }
 }

@@ -6,13 +6,7 @@
 #include <cmath>
 
 enum class EyeShape {
-    CIRCLE,      // Círculo suave (muchos segmentos)
-    HEXAGON,     // 6 lados
-    OCTAGON,     // 8 lados
-    SQUARE,      // 4 lados
-    TRIANGLE,    // 3 lados
-    RECTANGLE,   // Rectángulo horizontal
-    CAPSULE      // Forma de píldora (estilo EVA)
+    CIRCLE,
 };
 
 class Eye {
@@ -25,18 +19,8 @@ public:
 
     // Setters para animaciones dinámicas
     void setPosition(float x, float y);
-    void setPupilOffset(float x, float y);
-    void setShape(EyeShape shape);
-    void setLineThickness(float thickness);
 
 private:
-    std::vector<float> generateShapeVertices(EyeShape shape, float radius);
-    std::vector<float> generateCircleVertices(float radius, int segments);
-    std::vector<float> generatePolygonVertices(float radius, int sides);
-    std::vector<float> generateRectangleVertices(float width, float height);
-    std::vector<float> generateCapsuleVertices(float width, float height);
-    std::vector<float> generateThickOutline(const std::vector<float>& centerLine, float thickness);
-
     GLuint outlineVBO;
 
     float posX, posY;
