@@ -273,22 +273,28 @@ void Renderer::renderEyes() {
     pet_.update(std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - lastFrameTime_).count());
     lastFrameTime_ = std::chrono::high_resolution_clock::now();
 
-    float yOffset = pet_.getYOffset();
+    float lookX = pet_.getLookAtX() * 1.15f;
+    float lookY = pet_.getLookAtY() * 1.15f;
     float scale = pet_.getScale();
     float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
 
-    // Renderizado dinámico de ojos
+    //  La posición fija original (el "eyeSpacing" y "eyeY" de initEyes).
+
+    float eyeSpacing = 0.45f; // Valor definido en initEyes
+    float eyeY = 0.0f;        // Valor definido en initEyes
+
     if (leftEye_ && rightEye_) {
-        leftEye_->setPosition(leftEye_->getX(), leftEye_->getY() + yOffset);
-        rightEye_->setPosition(rightEye_->getX(), rightEye_->getY() + yOffset);
+        // Calculamos la posición final siempre desde el origen estático
+        leftEye_->setPosition(-eyeSpacing + lookX, eyeY + lookY);
+        rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
 
         leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
         rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
     }
 
-    // Renderizado dinámico de boca
     if (mouth_) {
-        mouth_->setPosition(mouth_->getX(), mouth_->getY() + (yOffset * 0.5f));
+        // La boca vuelve a (0.0, -0.25) cuando lookX/Y son 0
+        mouth_->setPosition(0.0f + (lookX * 0.5f), -0.25f + (lookY * 0.5f));
         mouth_->draw(eyeShaderProgram_);
     }
 }
@@ -406,27 +412,39 @@ void Renderer::handleInput() {
     for (auto i = 0; i < inputBuffer->motionEventsCount; i++) {
         auto &motionEvent = inputBuffer->motionEvents[i];
         auto action = motionEvent.action;
-        auto pointerIndex = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
-                >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-        auto &pointer = motionEvent.pointers[pointerIndex];
-        auto x = GameActivityPointerAxes_getX(&pointer);
-        auto y = GameActivityPointerAxes_getY(&pointer);
+
+        // 1. Obtenemos las coordenadas del toque (primer dedo)
+        auto &pointer = motionEvent.pointers[0];
+        float rawX = GameActivityPointerAxes_getX(&pointer);
+        float rawY = GameActivityPointerAxes_getY(&pointer);
+
+        // 2. Normalizamos las coordenadas al rango [-1.0, 1.0] de OpenGL
+        // width_ y height_ son las dimensiones de la superficie de renderizado
+        float normX = (2.0f * rawX / (float)width_) - 1.0f;
+        float normY = 1.0f - (2.0f * rawY / (float)height_);
 
         switch (action & AMOTION_EVENT_ACTION_MASK) {
             case AMOTION_EVENT_ACTION_DOWN:
-            case AMOTION_EVENT_ACTION_POINTER_DOWN:
-                pet_.onTouch();
-                break;
             case AMOTION_EVENT_ACTION_MOVE: {
+                // Mientras se mueve o se mantiene presionado
                 auto currentTime = std::chrono::high_resolution_clock::now();
                 float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
-                for (auto index = 0; index < motionEvent.pointerCount; index++) {
-                    pet_.onHold(deltaTime);
-                }
+
+                // Actualizamos el punto hacia donde debe mirar
+                pet_.setLookAtTarget(normX, normY);
+                // Notificamos que el dedo sigue presionado para activar 'isLooking'
+                pet_.onHold(deltaTime);
                 break;
             }
+            case AMOTION_EVENT_ACTION_UP:
+            case AMOTION_EVENT_ACTION_CANCEL:
+                // Al soltar el dedo, la mascota deja de mirar
+                pet_.onRelease();
+                break;
         }
     }
+
+    // Limpiamos los buffers de entrada para el siguiente frame
     android_app_clear_motion_events(inputBuffer);
     android_app_clear_key_events(inputBuffer);
 }
