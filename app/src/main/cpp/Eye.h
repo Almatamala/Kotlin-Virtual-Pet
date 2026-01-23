@@ -2,30 +2,29 @@
 #define EYE_H
 
 #include <GLES3/gl3.h>
-#include <vector>
+
+enum class EyeShape { CIRCLE, SQUARE, TRIANGLE };
 
 class Eye {
 public:
-    Eye(float x, float y, float radius);
+    // Mantenemos los parámetros para que coincidan con Mouth
+    Eye(float x, float y, float width, float height, float thickness = 0.15f);
     ~Eye();
 
     void init();
     void draw(GLuint shaderProgram, float eyeOpenness, float scale);
-
-    // Setters para animaciones dinámicas
     void setPosition(float x, float y);
-    void setPupilOffset(float x, float y);
+
+    // Getters para la posición base
+    float getX() const { return posX; }
+    float getY() const { return posY; }
 
 private:
-    std::vector<float> generateCircleVertices(float radius, int segments);
-
-    GLuint whiteVAO, whiteVBO;  // Esclerótica (blanco del ojo)
-    GLuint pupilVAO, pupilVBO;  // Pupila (negro)
-
+    GLuint outlineVBO;
     float posX, posY;
-    float radius;
-    float pupilOffsetX, pupilOffsetY;
+    float width, height; // Ahora usamos width y height en lugar de solo radius
+    float thickness;
     int vertexCount;
 };
 
-#endif // EYE_H
+#endif

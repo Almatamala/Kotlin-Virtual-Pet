@@ -10,17 +10,11 @@
 #include "Shader.h"
 #include "Utility.h"
 #include "TextureAsset.h"
+#include "Eye.h"
+#include "Mouth.h"
 
-//! executes glGetString and outputs the result to logcat
 #define PRINT_GL_STRING(s) {aout << #s": "<< glGetString(s) << std::endl;}
 
-/*!
- * @brief if glGetString returns a space separated list of elements, prints each one on a new line
- *
- * This works by creating an istringstream of the input c-style string. Then that is used to create
- * a vector -- each element of the vector is a new element in the input string. Finally a foreach
- * loop consumes this and outputs it to logcat using @a aout
- */
 #define PRINT_GL_STRING_AS_LIST(s) { \
 std::istringstream extensionStream((const char *) glGetString(s));\
 std::vector<std::string> extensionList(\
@@ -33,106 +27,158 @@ for (auto& extension: extensionList) {\
 aout << std::endl;\
 }
 
-//! Color negro para el fondo.
 #define BACKGROUNDBLACK 0.0f, 0.0f, 0.0f, 1.0f
 
-
-// Vertex shader, you'd typically load this from assets
+// Shaders básicos para modelos (Texturas)
 static const char *vertex = R"vertex(#version 300 es
 in vec3 inPosition;
 in vec2 inUV;
-
 out vec2 fragUV;
-
 uniform mat4 uProjection;
-
 void main() {
     fragUV = inUV;
     gl_Position = uProjection * vec4(inPosition, 1.0);
 }
 )vertex";
 
-// Fragment shader, you'd typically load this from assets
 static const char *fragment = R"fragment(#version 300 es
 precision mediump float;
-
 in vec2 fragUV;
-
 uniform sampler2D uTexture;
-
 out vec4 outColor;
-
 void main() {
     outColor = texture(uTexture, fragUV);
 }
 )fragment";
 
-// ============ SHADERS PARA LOS OJOS ============
+// ============ SHADERS INTEGRADOS ============
 
-// Vertex Shader para los ojos
 static const char* eyeVertexShader = R"(#version 300 es
 precision mediump float;
-
 layout(location = 0) in vec2 aPosition;
-
 uniform vec2 uPosition;
 uniform float uScale;
 uniform float uEyeOpenness;
+uniform bool uIsMouth;
 
 out vec2 vLocalPos;
 
 void main() {
     vec2 scaledPos = aPosition * uScale;
-    scaledPos.y *= uEyeOpenness;
-    vec2 finalPos = scaledPos + uPosition;
-    gl_Position = vec4(finalPos, 0.0, 1.0);
+    // Solo aplicamos parpadeo si no es la boca
+    if(!uIsMouth) {
+        scaledPos.y *= uEyeOpenness;
+    }
+    gl_Position = vec4(scaledPos + uPosition, 0.0, 1.0);
     vLocalPos = aPosition;
 }
 )";
 
-// Fragment Shader para los ojos
 static const char* eyeFragmentShader = R"(#version 300 es
 precision mediump float;
-
 in vec2 vLocalPos;
 out vec4 FragColor;
 
 uniform vec3 uColor;
+uniform float uThickness;
+uniform bool uIsMouth;
+uniform float uEyeOpenness;
+
+// Uniforms para dimensiones dinámicas
+uniform float uWidth;
+uniform float uHeight;
+uniform float uMouthWidth;
+uniform float uMouthHeight;
+
+float dot2(vec2 v) { return dot(v,v); }
+
+// Función para la boca :3
+float sdBezier(in vec2 pos, in vec2 A, in vec2 B, in vec2 C) {
+    vec2 a = B - A; vec2 b = A - 2.0*B + C; vec2 c = a * 2.0; vec2 d = A - pos;
+    float kk = 1.0/dot(b,b);
+    float kx = kk * dot(a,b);
+    float ky = kk * (2.0*dot(a,a)+dot(d,b)) / 3.0;
+    float kz = kk * dot(d,a);
+    float res = 0.0;
+    float p = ky - kx*kx; float p3 = p*p*p;
+    float q = kx*(2.0*kx*kx-3.0*ky) + kz;
+    float h = q*q + 4.0*p3;
+    if(h >= 0.0) {
+        h = sqrt(h); vec2 x = (vec2(h,-h)-q)/2.0;
+        vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+        float t = clamp(uv.x+uv.y-kx, 0.0, 1.0);
+        res = dot2(d + (c + b*t)*t);
+    } else {
+        float z = sqrt(-p); float v = acos(q/(p*z*2.0)) / 3.0;
+        float m = cos(v); float n = sin(v)*1.732050808;
+        vec3 t = clamp(vec3(m+m,-n-m,n-m)*z-kx,0.0,1.0);
+        res = min(dot2(d+(c+b*t.x)*t.x), dot2(d+(c+b*t.y)*t.y));
+    }
+    return sqrt(res);
+}
+
+// Función para ojos Quadratic Circle
+float sdQuadraticCircle(in vec2 p) {
+    p = abs(p); if( p.y>p.x ) p=p.yx;
+    float a = p.x-p.y;
+    float b = p.x+p.y;
+    float c = (2.0*b-1.0)/3.0;
+    float h = a*a + c*c*c;
+    float t;
+    if( h>=0.0 ) {
+        h = sqrt(h);
+        t = sign(h-a)*pow(abs(h-a),1.0/3.0) - pow(h+a,1.0/3.0);
+    } else {
+        float z = sqrt(-c);
+        float v = acos(a/(c*z))/3.0;
+        t = -z*(cos(v)+sin(v)*1.732050808);
+    }
+    t *= 0.5;
+    vec2 w = vec2(-t,t) + 0.75 - t*t - p;
+    return length(w) * sign( a*a*0.5+b-1.5 );
+}
 
 void main() {
-    float dist = length(vLocalPos);
-    float alpha = 1.0 - smoothstep(0.95, 1.0, dist);
+    float alpha = 0.0;
+
+    if (uIsMouth) {
+        vec2 p = vLocalPos;
+        p.x = abs(p.x);
+        // Usamos las dimensiones del constructor para escalar la boca
+        vec2 A = vec2(0.0, 0.0);
+        vec2 B = vec2(uMouthWidth * 0.625, -uMouthHeight * 0.5);
+        vec2 C = vec2(uMouthWidth * 0.5, 0.0);
+        float d = sdBezier(p, A, B, C);
+        alpha = 1.0 - smoothstep(uThickness - 0.01, uThickness + 0.01, d);
+    } else {
+        // Normalizamos la posición del ojo según su ancho y alto
+        vec2 p = vLocalPos / vec2(uWidth, uHeight);
+
+        // Aplicamos el recorte de parpadeo (opcional aquí o en vertex)
+        if(abs(p.y) > uEyeOpenness) discard;
+
+        float dist = sdQuadraticCircle(p);
+        // Invertimos dist para rellenar el interior
+        alpha = 1.0 - smoothstep(-0.02, 0.02, dist);
+    }
+
+    if (alpha < 0.01) discard;
     FragColor = vec4(uColor, alpha);
 }
 )";
 
-/*!
- * Half the height of the projection matrix. This gives you a renderable area of height 4 ranging
- * from -2 to 2
- */
 static constexpr float kProjectionHalfHeight = 2.f;
-
-/*!
- * The near plane distance for the projection matrix. Since this is an orthographic projection
- * matrix, it's convenient to have negative values for sorting (and avoiding z-fighting at 0).
- */
 static constexpr float kProjectionNearPlane = -1.f;
-
-/*!
- * The far plane distance for the projection matrix. Since this is an orthographic porjection
- * matrix, it's convenient to have the far plane equidistant from 0 as the near plane.
- */
 static constexpr float kProjectionFarPlane = 1.f;
 
 Renderer::~Renderer() {
-    // Limpiar recursos de los ojos
     delete leftEye_;
     delete rightEye_;
+    delete mouth_;
     if (eyeShaderProgram_) {
         glDeleteProgram(eyeShaderProgram_);
     }
 
-    // Limpiar recursos EGL existentes
     if (display_ != EGL_NO_DISPLAY) {
         eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (context_ != EGL_NO_CONTEXT) {
@@ -149,7 +195,6 @@ Renderer::~Renderer() {
 }
 
 GLuint Renderer::createEyeShaderProgram() {
-    // Compilar vertex shader
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &eyeVertexShader, nullptr);
     glCompileShader(vertexShader);
@@ -163,7 +208,6 @@ GLuint Renderer::createEyeShaderProgram() {
         return 0;
     }
 
-    // Compilar fragment shader
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, &eyeFragmentShader, nullptr);
     glCompileShader(fragmentShader);
@@ -176,7 +220,6 @@ GLuint Renderer::createEyeShaderProgram() {
         return 0;
     }
 
-    // Linkear programa
     GLuint program = glCreateProgram();
     glAttachShader(program, vertexShader);
     glAttachShader(program, fragmentShader);
@@ -193,95 +236,74 @@ GLuint Renderer::createEyeShaderProgram() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    aout << "Eye shader program created successfully" << std::endl;
     return program;
 }
 
 void Renderer::initEyes() {
-    aout << "=== Initializing Eyes ===" << std::endl;
+    aout << "=== Initializing Face Components ===" << std::endl;
 
-    // Crear el programa de shaders para los ojos
     eyeShaderProgram_ = createEyeShaderProgram();
-    if (eyeShaderProgram_ == 0) {
-        aout << "ERROR: Failed to create eye shader program!" << std::endl;
-        return;
-    }
+    if (eyeShaderProgram_ == 0) return;
 
-    aout << "Eye shader program ID: " << eyeShaderProgram_ << std::endl;
+    // --- CONFIGURACIÓN DE OJOS ---
+    // Parámetros: X, Y, Width, Height, Thickness
+    float eyeW = 0.35f;
+    float eyeH = 0.25f;
+    float eyeSpacing = 0.45f;
+    float eyeY = 0;
 
-    // Crear los ojos (posiciones en espacio normalizado)
-    // Estos valores se ajustarán con el aspect ratio en renderEyes()
-    leftEye_ = new Eye(-0.3f, 0.0f, 0.25f);
-    rightEye_ = new Eye(0.3f, 0.0f, 0.25f);
+    leftEye_ = new Eye(-eyeSpacing, eyeY, eyeW, eyeH);
+    rightEye_ = new Eye(eyeSpacing, eyeY, eyeW, eyeH);
 
     leftEye_->init();
     rightEye_->init();
 
-    aout << "=== Eyes initialized successfully ===" << std::endl;
+    // --- CONFIGURACIÓN DE BOCA ---
+    // Parámetros: X, Y, Width, Height
+    // Estos valores definen el "origen" y el tamaño de la curva :3
+    mouth_ = new Mouth(0.0f, -0.25f, 0.3f, 0.2f);
+    mouth_->init();
+
+    aout << "=== Face components initialized successfully ===" << std::endl;
 }
 
 void Renderer::renderEyes() {
-    // Verificar que el shader program es válido
-    if (eyeShaderProgram_ == 0) {
-        aout << "ERROR: Eye shader program is 0!" << std::endl;
-        return;
-    }
+    if (eyeShaderProgram_ == 0) return;
 
-    // PRUEBA: Limpiar con un color diferente para verificar que render() se llama
-    // Descomentar esta línea temporalmente para ver si al menos el fondo cambia
-    // glClearColor(0.2f, 0.0f, 0.2f, 1.0f); // Púrpura oscuro
+    pet_.update(std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - lastFrameTime_).count());
+    lastFrameTime_ = std::chrono::high_resolution_clock::now();
 
-    // Calcular delta time
-    auto currentTime = std::chrono::high_resolution_clock::now();
-    float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
-    lastFrameTime_ = currentTime;
-
-    // Actualizar la lógica de la mascota
-    pet_.update(deltaTime);
-
-    // Obtener parámetros de animación
-    float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
+    float lookX = pet_.getLookAtX() * 1.15f;
+    float lookY = pet_.getLookAtY() * 1.15f;
     float scale = pet_.getScale();
-    float yOffset = pet_.getYOffset();
+    float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
 
-    // Log cada 60 frames (aprox 1 vez por segundo)
-    static int frameCount = 0;
-    if (frameCount++ % 60 == 0) {
-        aout << "Rendering eyes - openness: " << eyeOpenness
-             << ", scale: " << scale
-             << ", yOffset: " << yOffset << std::endl;
+    //  La posición fija original (el "eyeSpacing" y "eyeY" de initEyes).
+
+    float eyeSpacing = 0.45f; // Valor definido en initEyes
+    float eyeY = 0.0f;        // Valor definido en initEyes
+
+    if (leftEye_ && rightEye_) {
+        // Calculamos la posición final siempre desde el origen estático
+        leftEye_->setPosition(-eyeSpacing + lookX, eyeY + lookY);
+        rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
+
+        leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+        rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
     }
 
-    // Calcular aspect ratio para ajustar posiciones
-    float aspectRatio = (float)width_ / (float)height_;
-
-    // Ajustar posiciones de los ojos según aspect ratio
-    float eyeSpacing = 0.3f / aspectRatio; // Separación entre ojos
-    float leftX = -eyeSpacing;
-    float rightX = eyeSpacing;
-
-    leftEye_->setPosition(leftX, yOffset);
-    rightEye_->setPosition(rightX, yOffset);
-
-    // Dibujar los ojos
-    leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
-    rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+    if (mouth_) {
+        // La boca vuelve a (0.0, -0.25) cuando lookX/Y son 0
+        mouth_->setPosition(0.0f + (lookX * 0.5f), -0.25f + (lookY * 0.5f));
+        mouth_->draw(eyeShaderProgram_);
+    }
 }
 
 void Renderer::render() {
-    // Check to see if the surface has changed size. This is _necessary_ to do every frame when
-    // using immersive mode as you'll get no other notification that your renderable area has
-    // changed.
     updateRenderArea();
 
-    // When the renderable area changes, the projection matrix has to also be updated. This is true
-    // even if you change from the sample orthographic projection matrix as your aspect ratio has
-    // likely changed.
     if (shaderNeedsNewProjectionMatrix_) {
-        // a placeholder projection matrix allocated on the stack. Column-major memory layout
         float projectionMatrix[16] = {0};
-
-        // build an orthographic projection matrix for 2d rendering
         Utility::buildOrthographicMatrix(
                 projectionMatrix,
                 kProjectionHalfHeight,
@@ -289,44 +311,25 @@ void Renderer::render() {
                 kProjectionNearPlane,
                 kProjectionFarPlane);
 
-        // send the matrix to the shader
-        // Note: the shader must be active for this to work. Since we only have one shader for this
-        // demo, we can assume that it's active.
         shader_->setProjectionMatrix(projectionMatrix);
-
-        // make sure the matrix isn't generated every frame
         shaderNeedsNewProjectionMatrix_ = false;
     }
 
-    // clear the color buffer (fondo negro)
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Habilitar blending para anti-aliasing de los ojos
+    // Importante habilitar Blending para que el smoothstep del shader funcione correctamente
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // Renderizar los ojos animados
     if (leftEye_ && rightEye_) {
         renderEyes();
     }
 
-    // Render all the models (si los necesitas más adelante)
-    // Los dejé comentados para que solo se vean los ojos
-    /*
-    if (!models_.empty()) {
-        for (const auto &model: models_) {
-            shader_->drawModel(model);
-        }
-    }
-    */
-
-    // Present the rendered image. This is an implicit glFlush.
     auto swapResult = eglSwapBuffers(display_, surface_);
     assert(swapResult == EGL_TRUE);
 }
 
 void Renderer::initRenderer() {
-    // Choose your render attributes
     constexpr EGLint attribs[] = {
             EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
             EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
@@ -337,21 +340,15 @@ void Renderer::initRenderer() {
             EGL_NONE
     };
 
-    // The default display is probably what you want on Android
     auto display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(display, nullptr, nullptr);
 
-    // figure out how many configs there are
     EGLint numConfigs;
     eglChooseConfig(display, attribs, nullptr, 0, &numConfigs);
 
-    // get the list of configurations
     std::unique_ptr<EGLConfig[]> supportedConfigs(new EGLConfig[numConfigs]);
     eglChooseConfig(display, attribs, supportedConfigs.get(), numConfigs, &numConfigs);
 
-    // Find a config we like.
-    // Could likely just grab the first if we don't care about anything else in the config.
-    // Otherwise hook in your own heuristic
     auto config = *std::find_if(
             supportedConfigs.get(),
             supportedConfigs.get() + numConfigs,
@@ -361,27 +358,15 @@ void Renderer::initRenderer() {
                     && eglGetConfigAttrib(display, config, EGL_GREEN_SIZE, &green)
                     && eglGetConfigAttrib(display, config, EGL_BLUE_SIZE, &blue)
                     && eglGetConfigAttrib(display, config, EGL_DEPTH_SIZE, &depth)) {
-
-                    aout << "Found config with " << red << ", " << green << ", " << blue << ", "
-                         << depth << std::endl;
                     return red == 8 && green == 8 && blue == 8 && depth == 24;
                 }
                 return false;
             });
 
-    aout << "Found " << numConfigs << " configs" << std::endl;
-    aout << "Chose " << config << std::endl;
-
-    // create the proper window surface
-    EGLint format;
-    eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &format);
     EGLSurface surface = eglCreateWindowSurface(display, config, app_->window, nullptr);
-
-    // Create a GLES 3 context
     EGLint contextAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
     EGLContext context = eglCreateContext(display, config, nullptr, contextAttribs);
 
-    // get some window metrics
     auto madeCurrent = eglMakeCurrent(display, surface, surface, context);
     assert(madeCurrent);
 
@@ -389,34 +374,19 @@ void Renderer::initRenderer() {
     surface_ = surface;
     context_ = context;
 
-    // make width and height invalid so it gets updated the first frame in @a updateRenderArea()
     width_ = -1;
     height_ = -1;
-
-    PRINT_GL_STRING(GL_VENDOR);
-    PRINT_GL_STRING(GL_RENDERER);
-    PRINT_GL_STRING(GL_VERSION);
-    PRINT_GL_STRING_AS_LIST(GL_EXTENSIONS);
 
     shader_ = std::unique_ptr<Shader>(
             Shader::loadShader(vertex, fragment, "inPosition", "inUV", "uProjection"));
     assert(shader_);
-
-    // Note: there's only one shader in this demo, so I'll activate it here. For a more complex game
-    // you'll want to track the active shader and activate/deactivate it as necessary
     shader_->activate();
 
-    // setup any other gl related global states
     glClearColor(BACKGROUNDBLACK);
 
-    // enable alpha globally for now, you probably don't want to do this in a game
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // get some demo models into memory (comentado porque usaremos solo los ojos)
-    // createModels();
-
-    // Inicializar el sistema de ojos
     initEyes();
 }
 
@@ -431,140 +401,50 @@ void Renderer::updateRenderArea() {
         width_ = width;
         height_ = height;
         glViewport(0, 0, width, height);
-
-        // make sure that we lazily recreate the projection matrix before we render
         shaderNeedsNewProjectionMatrix_ = true;
     }
 }
 
-/**
- * @brief Create any demo models we want for this demo.
- */
-void Renderer::createModels() {
-    /*
-     * This is a square:
-     * 0 --- 1
-     * | \   |
-     * |  \  |
-     * |   \ |
-     * 3 --- 2
-     */
-    std::vector<Vertex> vertices = {
-            Vertex(Vector3{1, 1, 0}, Vector2{0, 0}), // 0
-            Vertex(Vector3{-1, 1, 0}, Vector2{1, 0}), // 1
-            Vertex(Vector3{-1, -1, 0}, Vector2{1, 1}), // 2
-            Vertex(Vector3{1, -1, 0}, Vector2{0, 1}) // 3
-    };
-    std::vector<Index> indices = {
-            0, 1, 2, 0, 2, 3
-    };
-
-    // loads an image and assigns it to the square.
-    //
-    // Note: there is no texture management in this sample, so if you reuse an image be careful not
-    // to load it repeatedly. Since you get a shared_ptr you can safely reuse it in many models.
-    auto assetManager = app_->activity->assetManager;
-    auto spAndroidRobotTexture = TextureAsset::loadAsset(assetManager, "android_robot.png");
-
-    // Create a model and put it in the back of the render list.
-    models_.emplace_back(vertices, indices, spAndroidRobotTexture);
-}
-
 void Renderer::handleInput() {
-    // handle all queued inputs
     auto *inputBuffer = android_app_swap_input_buffers(app_);
-    if (!inputBuffer) {
-        // no inputs yet.
-        return;
-    }
+    if (!inputBuffer) return;
 
-    // handle motion events (motionEventsCounts can be 0).
     for (auto i = 0; i < inputBuffer->motionEventsCount; i++) {
         auto &motionEvent = inputBuffer->motionEvents[i];
         auto action = motionEvent.action;
 
-        // Find the pointer index, mask and bitshift to turn it into a readable value.
-        auto pointerIndex = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
-                >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-        aout << "Pointer(s): ";
+        // 1. Obtenemos las coordenadas del toque (primer dedo)
+        auto &pointer = motionEvent.pointers[0];
+        float rawX = GameActivityPointerAxes_getX(&pointer);
+        float rawY = GameActivityPointerAxes_getY(&pointer);
 
-        // get the x and y position of this event if it is not ACTION_MOVE.
-        auto &pointer = motionEvent.pointers[pointerIndex];
-        auto x = GameActivityPointerAxes_getX(&pointer);
-        auto y = GameActivityPointerAxes_getY(&pointer);
+        // 2. Normalizamos las coordenadas al rango [-1.0, 1.0] de OpenGL
+        // width_ y height_ son las dimensiones de la superficie de renderizado
+        float normX = (2.0f * rawX / (float)width_) - 1.0f;
+        float normY = 1.0f - (2.0f * rawY / (float)height_);
 
-        // determine the action type and process the event accordingly.
         switch (action & AMOTION_EVENT_ACTION_MASK) {
             case AMOTION_EVENT_ACTION_DOWN:
-            case AMOTION_EVENT_ACTION_POINTER_DOWN:
-                aout << "(" << pointer.id << ", " << x << ", " << y << ") "
-                     << "Pointer Down";
-                // Trigger touch en Pet
-                pet_.onTouch();
-                break;
-
-            case AMOTION_EVENT_ACTION_CANCEL:
-                // treat the CANCEL as an UP event: doing nothing in the app, except
-                // removing the pointer from the cache if pointers are locally saved.
-                // code pass through on purpose.
-            case AMOTION_EVENT_ACTION_UP:
-            case AMOTION_EVENT_ACTION_POINTER_UP:
-                aout << "(" << pointer.id << ", " << x << ", " << y << ") "
-                     << "Pointer Up";
-                break;
-
             case AMOTION_EVENT_ACTION_MOVE: {
-                // There is no pointer index for ACTION_MOVE, only a snapshot of
-                // all active pointers; app needs to cache previous active pointers
-                // to figure out which ones are actually moved.
-
-                // Calcular delta time para onHold
+                // Mientras se mueve o se mantiene presionado
                 auto currentTime = std::chrono::high_resolution_clock::now();
                 float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
 
-                for (auto index = 0; index < motionEvent.pointerCount; index++) {
-                    pointer = motionEvent.pointers[index];
-                    x = GameActivityPointerAxes_getX(&pointer);
-                    y = GameActivityPointerAxes_getY(&pointer);
-                    aout << "(" << pointer.id << ", " << x << ", " << y << ")";
-
-                    if (index != (motionEvent.pointerCount - 1)) aout << ",";
-                    aout << " ";
-
-                    // Trigger hold en Pet
-                    pet_.onHold(deltaTime);
-                }
-                aout << "Pointer Move";
+                // Actualizamos el punto hacia donde debe mirar
+                pet_.setLookAtTarget(normX, normY);
+                // Notificamos que el dedo sigue presionado para activar 'isLooking'
+                pet_.onHold(deltaTime);
                 break;
             }
-            default:
-                aout << "Unknown MotionEvent Action: " << action;
+            case AMOTION_EVENT_ACTION_UP:
+            case AMOTION_EVENT_ACTION_CANCEL:
+                // Al soltar el dedo, la mascota deja de mirar
+                pet_.onRelease();
+                break;
         }
-        aout << std::endl;
     }
-    // clear the motion input count in this buffer for main thread to re-use.
-    android_app_clear_motion_events(inputBuffer);
 
-    // handle input key events.
-    for (auto i = 0; i < inputBuffer->keyEventsCount; i++) {
-        auto &keyEvent = inputBuffer->keyEvents[i];
-        aout << "Key: " << keyEvent.keyCode <<" ";
-        switch (keyEvent.action) {
-            case AKEY_EVENT_ACTION_DOWN:
-                aout << "Key Down";
-                break;
-            case AKEY_EVENT_ACTION_UP:
-                aout << "Key Up";
-                break;
-            case AKEY_EVENT_ACTION_MULTIPLE:
-                // Deprecated since Android API level 29.
-                aout << "Multiple Key Actions";
-                break;
-            default:
-                aout << "Unknown KeyEvent Action: " << keyEvent.action;
-        }
-        aout << std::endl;
-    }
-    // clear the key input count too.
+    // Limpiamos los buffers de entrada para el siguiente frame
+    android_app_clear_motion_events(inputBuffer);
     android_app_clear_key_events(inputBuffer);
 }

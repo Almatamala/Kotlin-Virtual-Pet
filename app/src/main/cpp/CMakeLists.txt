@@ -19,7 +19,8 @@ add_library(kotlin_virtualpet SHARED
         TextureAsset.cpp
         Utility.cpp
         Pet.cpp
-        Eye.cpp)
+        Eye.cpp
+        Mouth.cpp)
 
 # Searches for a package provided by the game activity dependency
 find_package(game-activity REQUIRED CONFIG)

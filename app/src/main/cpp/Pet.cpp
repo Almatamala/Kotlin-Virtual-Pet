@@ -1,21 +1,21 @@
 #include "Pet.hpp"
-#include <algorithm>
 #include <cmath>
 
-// Constructor
 Pet::Pet(float initialMood)
         : moodLevel_(initialMood),
           time_(0.0f),
           blinkTimer_(0.0f),
           isBlinking_(false),
-          reactionTimer_(0.0f) {}
+          isBeingHeld_(false),
+          targetLookX_(0.0f), targetLookY_(0.0f),
+          currentLookX_(0.0f), currentLookY_(0.0f) {}
 
 void Pet::update(float deltaTime) {
     time_ += deltaTime;
 
-    // 1. Lógica de Parpadeo
+    // 1. Ciclo de parpadeo
     blinkTimer_ += deltaTime;
-    if (!isBlinking_ && blinkTimer_ > 3.0f) {
+    if (!isBlinking_ && blinkTimer_ > 5.0f) {
         isBlinking_ = true;
         blinkTimer_ = 0.0f;
     }
@@ -24,26 +24,37 @@ void Pet::update(float deltaTime) {
         blinkTimer_ = 0.0f;
     }
 
-    // 2. Temporizador de reacción
-    if (reactionTimer_ > 0.0f) {
-        reactionTimer_ -= deltaTime;
-    }
+    // 2. Lógica de Interpolación (Suavizado)
+    // Si soltamos la pantalla, el objetivo vuelve a ser el centro (0,0)
+    float finalTargetX = isBeingHeld_ ? targetLookX_ : 0.0f;
+    float finalTargetY = isBeingHeld_ ? targetLookY_ : 0.0f;
+
+    // Velocidad a la que los ojos siguen al dedo o regresan al centro
+    float lerpSpeed = 15.0f; // Aumentado de 10.0f para un retorno más rápido
+    currentLookX_ += (finalTargetX - currentLookX_) * lerpSpeed * deltaTime;
+    currentLookY_ += (finalTargetY - currentLookY_) * lerpSpeed * deltaTime;
 }
 
-void Pet::onTouch() {
-    reactionTimer_ = 0.5f;
+void Pet::setLookAtTarget(float x, float y) {
+    // EL LÍMITE ES PROPORCIONAL:
+    // Multiplicamos la posición del dedo (-1 a 1) por el rango máximo de movimiento.
+    // Cuanto más lejos esté el dedo (x cercano a 1), mayor será el desplazamiento (0.20f).
+    targetLookX_ = std::clamp(x, -1.0f, 1.0f) * 0.20f;
+    targetLookY_ = std::clamp(y, -1.0f, 1.0f) * 0.12f;
 }
 
 void Pet::onHold(float deltaTime) {
-    setMoodLevel(moodLevel_ + (15.0f * deltaTime));
+    isBeingHeld_ = true; // Activa la mirada y la interacción
+    setMoodLevel(moodLevel_ + (10.0f * deltaTime));
+}
+
+void Pet::onRelease() {
+    isBeingHeld_ = false; // Al desactivarse, el update() hará que regrese a (0,0)
 }
 
 void Pet::setMoodLevel(float level) {
-    // Si std::clamp te da error, asegúrate de compilar con C++17 en CMake
     moodLevel_ = std::clamp(level, 0.0f, 100.0f);
 }
-
-float Pet::getMoodLevel() const { return moodLevel_; }
 
 PetMood Pet::getMoodState() const {
     if (moodLevel_ < 25.0f) return PetMood::SAD;
@@ -52,39 +63,6 @@ PetMood Pet::getMoodState() const {
     return PetMood::HAPPY;
 }
 
-bool Pet::isBlinking() const { return isBlinking_; }
-
 float Pet::getScale() const {
-    float scale = 1.0f + std::sin(time_ * 2.0f) * 0.05f;
-    if (reactionTimer_ > 0.0f && getMoodState() == PetMood::ANGRY) {
-        scale *= 1.2f;
-    }
-    return scale;
-}
-
-float Pet::getYOffset() const {
-    if (getMoodState() == PetMood::HAPPY) {
-        return std::abs(std::sin(time_ * 5.0f)) * 0.2f;
-    }
-    if (reactionTimer_ > 0.0f) {
-        return 0.1f;
-    }
-    return 0.0f;
-}
-
-float Pet::getFloatingOffset() const {
-    // EVE no camina, flota. Añade un balanceo suave en 8 (Lissajous)
-    float x = std::sin(time_ * 0.5f) * 0.05f;
-    float y = std::cos(time_ * 0.8f) * 0.05f;
-    return y; // Usa esto en tu matriz de modelo
-}
-
-std::string Pet::getMoodString() const {
-    switch (getMoodState()) {
-        case PetMood::SAD:     return "Triste";
-        case PetMood::ANGRY:   return "Enojado";
-        case PetMood::NEUTRAL: return "Neutral";
-        case PetMood::HAPPY:   return "Feliz";
-        default:               return "Desconocido";
-    }
+    return 1.0f + std::sin(time_ * 1.5f) * 0.01f;
 }
