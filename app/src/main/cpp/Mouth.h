@@ -10,12 +10,12 @@ public:
     ~Mouth();
 
     void init();
-    void draw(GLuint shaderProgram);
+    void draw(GLuint shaderProgram) const;
     void setPosition(float x, float y);
+    float getX() const { return posX; }
+    float getY() const { return posY; }
 
 private:
-    std::vector<float> generateWShapeVertices(float width, float height);
-
     GLuint vbo;
     float posX, posY;
     float width, height;

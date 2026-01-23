@@ -51,19 +51,24 @@ void main() {
 }
 )fragment";
 
-// ============ SHADERS ACTUALIZADOS PARA LOS OJOS ============
+// ============ SHADERS INTEGRADOS ============
 
-// Vertex Shader (Renderer.cpp)
 static const char* eyeVertexShader = R"(#version 300 es
 precision mediump float;
 layout(location = 0) in vec2 aPosition;
 uniform vec2 uPosition;
 uniform float uScale;
 uniform float uEyeOpenness;
+uniform bool uIsMouth;
+
 out vec2 vLocalPos;
+
 void main() {
     vec2 scaledPos = aPosition * uScale;
-    scaledPos.y *= uEyeOpenness;
+    // Solo aplicamos parpadeo si no es la boca
+    if(!uIsMouth) {
+        scaledPos.y *= uEyeOpenness;
+    }
     gl_Position = vec4(scaledPos + uPosition, 0.0, 1.0);
     vLocalPos = aPosition;
 }
@@ -75,25 +80,90 @@ in vec2 vLocalPos;
 out vec4 FragColor;
 
 uniform vec3 uColor;
-uniform float uRadius;
 uniform float uThickness;
+uniform bool uIsMouth;
+uniform float uEyeOpenness;
+
+// Uniforms para dimensiones dinámicas
+uniform float uWidth;
+uniform float uHeight;
+uniform float uMouthWidth;
+uniform float uMouthHeight;
+
+float dot2(vec2 v) { return dot(v,v); }
+
+// Función para la boca :3
+float sdBezier(in vec2 pos, in vec2 A, in vec2 B, in vec2 C) {
+    vec2 a = B - A; vec2 b = A - 2.0*B + C; vec2 c = a * 2.0; vec2 d = A - pos;
+    float kk = 1.0/dot(b,b);
+    float kx = kk * dot(a,b);
+    float ky = kk * (2.0*dot(a,a)+dot(d,b)) / 3.0;
+    float kz = kk * dot(d,a);
+    float res = 0.0;
+    float p = ky - kx*kx; float p3 = p*p*p;
+    float q = kx*(2.0*kx*kx-3.0*ky) + kz;
+    float h = q*q + 4.0*p3;
+    if(h >= 0.0) {
+        h = sqrt(h); vec2 x = (vec2(h,-h)-q)/2.0;
+        vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+        float t = clamp(uv.x+uv.y-kx, 0.0, 1.0);
+        res = dot2(d + (c + b*t)*t);
+    } else {
+        float z = sqrt(-p); float v = acos(q/(p*z*2.0)) / 3.0;
+        float m = cos(v); float n = sin(v)*1.732050808;
+        vec3 t = clamp(vec3(m+m,-n-m,n-m)*z-kx,0.0,1.0);
+        res = min(dot2(d+(c+b*t.x)*t.x), dot2(d+(c+b*t.y)*t.y));
+    }
+    return sqrt(res);
+}
+
+// Función para ojos Quadratic Circle
+float sdQuadraticCircle(in vec2 p) {
+    p = abs(p); if( p.y>p.x ) p=p.yx;
+    float a = p.x-p.y;
+    float b = p.x+p.y;
+    float c = (2.0*b-1.0)/3.0;
+    float h = a*a + c*c*c;
+    float t;
+    if( h>=0.0 ) {
+        h = sqrt(h);
+        t = sign(h-a)*pow(abs(h-a),1.0/3.0) - pow(h+a,1.0/3.0);
+    } else {
+        float z = sqrt(-c);
+        float v = acos(a/(c*z))/3.0;
+        t = -z*(cos(v)+sin(v)*1.732050808);
+    }
+    t *= 0.5;
+    vec2 w = vec2(-t,t) + 0.75 - t*t - p;
+    return length(w) * sign( a*a*0.5+b-1.5 );
+}
 
 void main() {
-    float dist = length(vLocalPos) / uRadius;
+    float alpha = 0.0;
 
-    // Si uRadius es muy grande (ej. 100.0), dist será casi 0
-    // Esto hará que outerAlpha sea siempre 1.0 para la boca
-    float outerAlpha = 1.0 - smoothstep(0.95, 1.0, dist);
+    if (uIsMouth) {
+        vec2 p = vLocalPos;
+        p.x = abs(p.x);
+        // Usamos las dimensiones del constructor para escalar la boca
+        vec2 A = vec2(0.0, 0.0);
+        vec2 B = vec2(uMouthWidth * 0.625, -uMouthHeight * 0.5);
+        vec2 C = vec2(uMouthWidth * 0.5, 0.0);
+        float d = sdBezier(p, A, B, C);
+        alpha = 1.0 - smoothstep(uThickness - 0.01, uThickness + 0.01, d);
+    } else {
+        // Normalizamos la posición del ojo según su ancho y alto
+        vec2 p = vLocalPos / vec2(uWidth, uHeight);
 
-    float innerRadius = 1.0 - uThickness;
-    float innerAlpha = smoothstep(innerRadius - 0.05, innerRadius, dist);
+        // Aplicamos el recorte de parpadeo (opcional aquí o en vertex)
+        if(abs(p.y) > uEyeOpenness) discard;
 
-    float finalAlpha = outerAlpha * innerAlpha;
+        float dist = sdQuadraticCircle(p);
+        // Invertimos dist para rellenar el interior
+        alpha = 1.0 - smoothstep(-0.02, 0.02, dist);
+    }
 
-    // Para la boca, finalAlpha será 1.0. Para los ojos, hará el aro.
-    if (finalAlpha < 0.01) discard;
-
-    FragColor = vec4(uColor, finalAlpha);
+    if (alpha < 0.01) discard;
+    FragColor = vec4(uColor, alpha);
 }
 )";
 
@@ -175,17 +245,23 @@ void Renderer::initEyes() {
     eyeShaderProgram_ = createEyeShaderProgram();
     if (eyeShaderProgram_ == 0) return;
 
-    // Grosor configurado en Eye.h/cpp
-    float lineThickness = 0.15f;
+    // --- CONFIGURACIÓN DE OJOS ---
+    // Parámetros: X, Y, Width, Height, Thickness
+    float eyeW = 0.35f;
+    float eyeH = 0.25f;
+    float eyeSpacing = 0.45f;
+    float eyeY = 0;
 
-    // Posiciones iniciales (se actualizan cada frame en renderEyes)
-    leftEye_ = new Eye(-0.35f, 0.1f, 0.3f, EyeShape::CIRCLE, lineThickness);
-    rightEye_ = new Eye(0.35f, 0.1f, 0.3f, EyeShape::CIRCLE, lineThickness);
+    leftEye_ = new Eye(-eyeSpacing, eyeY, eyeW, eyeH);
+    rightEye_ = new Eye(eyeSpacing, eyeY, eyeW, eyeH);
 
     leftEye_->init();
     rightEye_->init();
 
-    mouth_ = new Mouth(0.0f, -0.35f, 0.5f, 0.15f);
+    // --- CONFIGURACIÓN DE BOCA ---
+    // Parámetros: X, Y, Width, Height
+    // Estos valores definen el "origen" y el tamaño de la curva :3
+    mouth_ = new Mouth(0.0f, -0.25f, 0.3f, 0.2f);
     mouth_->init();
 
     aout << "=== Face components initialized successfully ===" << std::endl;
@@ -194,30 +270,25 @@ void Renderer::initEyes() {
 void Renderer::renderEyes() {
     if (eyeShaderProgram_ == 0) return;
 
-    auto currentTime = std::chrono::high_resolution_clock::now();
-    float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
-    lastFrameTime_ = currentTime;
+    pet_.update(std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - lastFrameTime_).count());
+    lastFrameTime_ = std::chrono::high_resolution_clock::now();
 
-    pet_.update(deltaTime);
-
-    float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
-    float scale = pet_.getScale();
     float yOffset = pet_.getYOffset();
+    float scale = pet_.getScale();
+    float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
 
-    // Ajuste de separación
-    float eyeSpacing = 0.45f;
+    // Renderizado dinámico de ojos
+    if (leftEye_ && rightEye_) {
+        leftEye_->setPosition(leftEye_->getX(), leftEye_->getY() + yOffset);
+        rightEye_->setPosition(rightEye_->getX(), rightEye_->getY() + yOffset);
 
-    // Actualizamos posiciones según la lógica de la mascota
-    leftEye_->setPosition(-eyeSpacing, 0.1f + yOffset);
-    rightEye_->setPosition(eyeSpacing, 0.1f + yOffset);
+        leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+        rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+    }
 
-    // El metodo draw de Eye ahora maneja internamente los uniformLoc y el binding de VBO
-    leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
-    rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
-
+    // Renderizado dinámico de boca
     if (mouth_) {
-        float mouthY = -0.35f + yOffset * 0.5f;
-        mouth_->setPosition(0.0f, mouthY);
+        mouth_->setPosition(mouth_->getX(), mouth_->getY() + (yOffset * 0.5f));
         mouth_->draw(eyeShaderProgram_);
     }
 }
