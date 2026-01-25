@@ -13,20 +13,6 @@
 #include "Eye.h"
 #include "Mouth.h"
 
-#define PRINT_GL_STRING(s) {aout << #s": "<< glGetString(s) << std::endl;}
-
-#define PRINT_GL_STRING_AS_LIST(s) { \
-std::istringstream extensionStream((const char *) glGetString(s));\
-std::vector<std::string> extensionList(\
-        std::istream_iterator<std::string>{extensionStream},\
-        std::istream_iterator<std::string>());\
-aout << #s":\n";\
-for (auto& extension: extensionList) {\
-    aout << extension << "\n";\
-}\
-aout << std::endl;\
-}
-
 #define BACKGROUNDBLACK 0.0f, 0.0f, 0.0f, 1.0f
 
 // Shaders básicos para modelos (Texturas)
@@ -83,12 +69,18 @@ uniform vec3 uColor;
 uniform float uThickness;
 uniform bool uIsMouth;
 uniform float uEyeOpenness;
+uniform float uTime;
+uniform bool uVHSEnabled; // Agregado para el menú
 
 // Uniforms para dimensiones dinámicas
 uniform float uWidth;
 uniform float uHeight;
 uniform float uMouthWidth;
 uniform float uMouthHeight;
+
+float noise(vec2 p) {
+    return fract(sin(dot(p, vec2(12.9898, 78.233) + uTime * 0.1)) * 43758.5453123);
+}
 
 float dot2(vec2 v) { return dot(v,v); }
 
@@ -139,31 +131,52 @@ float sdQuadraticCircle(in vec2 p) {
 }
 
 void main() {
-    float alpha = 0.0;
+    // 1. Jitter solo si VHS está activo
+    float jitter = uVHSEnabled ? (noise(vec2(uTime, vLocalPos.y * 10.0)) - 0.5) * 0.008 : 0.0;
+    vec2 pMod = vLocalPos + vec2(jitter, 0.0);
 
+    float alpha = 0.0;
+    float dist = 0.0;
+
+    // Lógica de forma (Boca u Ojos)
     if (uIsMouth) {
-        vec2 p = vLocalPos;
-        p.x = abs(p.x);
-        // Usamos las dimensiones del constructor para escalar la boca
+        vec2 p = pMod; p.x = abs(p.x);
         vec2 A = vec2(0.0, 0.0);
         vec2 B = vec2(uMouthWidth * 0.625, -uMouthHeight * 0.5);
         vec2 C = vec2(uMouthWidth * 0.5, 0.0);
-        float d = sdBezier(p, A, B, C);
-        alpha = 1.0 - smoothstep(uThickness - 0.01, uThickness + 0.01, d);
+        dist = sdBezier(p, A, B, C);
+        alpha = 1.0 - smoothstep(uThickness - 0.01, uThickness + 0.01, dist);
     } else {
-        // Normalizamos la posición del ojo según su ancho y alto
-        vec2 p = vLocalPos / vec2(uWidth, uHeight);
-
-        // Aplicamos el recorte de parpadeo (opcional aquí o en vertex)
+        vec2 p = pMod / vec2(uWidth, uHeight);
         if(abs(p.y) > uEyeOpenness) discard;
-
-        float dist = sdQuadraticCircle(p);
-        // Invertimos dist para rellenar el interior
+        dist = sdQuadraticCircle(p);
         alpha = 1.0 - smoothstep(-0.02, 0.02, dist);
     }
 
+    // --- COLOR FINAL ---
+    vec3 finalColor = uColor;
+
+    if (uVHSEnabled) {
+        // Solo aplicamos estática y línea si el switch está ON
+        float grain = noise(vLocalPos * 3.0) * 0.05;
+
+        // Aberración (desfase azul)
+        float bDist = uIsMouth ? dist : sdQuadraticCircle((pMod + vec2(0.015, 0.0)) / vec2(uWidth, uHeight));
+        float b = 1.0 - smoothstep(-0.02, 0.02, bDist);
+
+        // Línea de tracking
+        float trackingPos = fract(vLocalPos.y * 0.4 + uTime * 0.05);
+        float trackingBar = smoothstep(0.2, 0.0, abs(trackingPos - 0.5));
+
+        // Mezclamos con estética VHS
+        finalColor = vec3(finalColor.r * 0.1, finalColor.g * 0.8, b * 0.9);
+        finalColor += grain;
+        finalColor *= (1.0 - trackingBar * 0.6);
+    }
+    // Si uVHSEnabled es false, simplemente usa uColor puro
+
     if (alpha < 0.01) discard;
-    FragColor = vec4(uColor, alpha);
+    FragColor = vec4(finalColor * 1.6, alpha);
 }
 )";
 
@@ -261,7 +274,7 @@ void Renderer::initEyes() {
     // --- CONFIGURACIÓN DE BOCA ---
     // Parámetros: X, Y, Width, Height
     // Estos valores definen el "origen" y el tamaño de la curva :3
-    mouth_ = new Mouth(0.0f, -0.25f, 0.3f, 0.2f);
+    mouth_ = new Mouth(0.0f, -0.0f, 0.3f, 0.2f);
     mouth_->init();
 
     aout << "=== Face components initialized successfully ===" << std::endl;
@@ -270,31 +283,52 @@ void Renderer::initEyes() {
 void Renderer::renderEyes() {
     if (eyeShaderProgram_ == 0) return;
 
-    pet_.update(std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - lastFrameTime_).count());
-    lastFrameTime_ = std::chrono::high_resolution_clock::now();
+    // Conectamos con las variables globales actualizadas por el JNI en main.cpp
+    extern bool g_vhsEnabled;
+    extern float g_petColor[3];
 
-    float lookX = pet_.getLookAtX() * 1.15f;
-    float lookY = pet_.getLookAtY() * 1.15f;
+    // 1. Gestión del tiempo
+    static float totalTime = 0.0f;
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
+    lastFrameTime_ = currentTime;
+    totalTime += deltaTime;
+
+    // 2. Actualizamos la mascota
+    pet_.update(deltaTime);
+
+    // 3. Activamos shader y enviamos Uniforms del menú
+    glUseProgram(eyeShaderProgram_);
+
+    glUniform1f(glGetUniformLocation(eyeShaderProgram_, "uTime"), totalTime);
+    glUniform1i(glGetUniformLocation(eyeShaderProgram_, "uVHSEnabled"), g_vhsEnabled ? 1 : 0);
+    glUniform3f(glGetUniformLocation(eyeShaderProgram_, "uColor"), g_petColor[0], g_petColor[1], g_petColor[2]);
+
+    // 4. Parámetros de transformación
+    float lookX = pet_.getLookAtX();
+    float lookY = pet_.getLookAtY();
     float scale = pet_.getScale();
     float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
 
-    //  La posición fija original (el "eyeSpacing" y "eyeY" de initEyes).
+    // 5. Posiciones base
+    float eyeSpacing = 0.45f;
+    float eyeY = 0.15f;
+    float mouthBaseY = -0.1f;
 
-    float eyeSpacing = 0.45f; // Valor definido en initEyes
-    float eyeY = 0.0f;        // Valor definido en initEyes
-
+    // 6. Render de Ojos
     if (leftEye_ && rightEye_) {
-        // Calculamos la posición final siempre desde el origen estático
         leftEye_->setPosition(-eyeSpacing + lookX, eyeY + lookY);
-        rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
-
         leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+
+        rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
         rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
     }
 
+    // 7. Render de Boca
     if (mouth_) {
-        // La boca vuelve a (0.0, -0.25) cuando lookX/Y son 0
-        mouth_->setPosition(0.0f + (lookX * 0.5f), -0.25f + (lookY * 0.5f));
+        float mouthLookX = lookX * 0.5f;
+        float mouthLookY = lookY * 0.5f;
+        mouth_->setPosition(0.0f + mouthLookX, mouthBaseY + mouthLookY);
         mouth_->draw(eyeShaderProgram_);
     }
 }

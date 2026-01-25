@@ -24,43 +24,32 @@ void Pet::update(float deltaTime) {
         blinkTimer_ = 0.0f;
     }
 
-    // 2. Lógica de Interpolación (Suavizado)
-    // Si soltamos la pantalla, el objetivo vuelve a ser el centro (0,0)
+    // 2. Lógica de Interpolación (Suavizado y Retorno)
     float finalTargetX = isBeingHeld_ ? targetLookX_ : 0.0f;
     float finalTargetY = isBeingHeld_ ? targetLookY_ : 0.0f;
 
-    // Velocidad a la que los ojos siguen al dedo o regresan al centro
-    float lerpSpeed = 15.0f; // Aumentado de 10.0f para un retorno más rápido
+    float lerpSpeed = 15.0f;
     currentLookX_ += (finalTargetX - currentLookX_) * lerpSpeed * deltaTime;
     currentLookY_ += (finalTargetY - currentLookY_) * lerpSpeed * deltaTime;
 }
 
 void Pet::setLookAtTarget(float x, float y) {
-    // EL LÍMITE ES PROPORCIONAL:
-    // Multiplicamos la posición del dedo (-1 a 1) por el rango máximo de movimiento.
-    // Cuanto más lejos esté el dedo (x cercano a 1), mayor será el desplazamiento (0.20f).
+    // Límites proporcionales aplicados al objetivo
     targetLookX_ = std::clamp(x, -1.0f, 1.0f) * 0.20f;
     targetLookY_ = std::clamp(y, -1.0f, 1.0f) * 0.12f;
 }
 
 void Pet::onHold(float deltaTime) {
-    isBeingHeld_ = true; // Activa la mirada y la interacción
-    setMoodLevel(moodLevel_ + (10.0f * deltaTime));
+    isBeingHeld_ = true;
+    setMoodLevel(moodLevel_ + (10.0f * deltaTime)); // Aumenta el humor numérico
 }
 
 void Pet::onRelease() {
-    isBeingHeld_ = false; // Al desactivarse, el update() hará que regrese a (0,0)
+    isBeingHeld_ = false; // El update se encargará de volver a (0,0)
 }
 
 void Pet::setMoodLevel(float level) {
     moodLevel_ = std::clamp(level, 0.0f, 100.0f);
-}
-
-PetMood Pet::getMoodState() const {
-    if (moodLevel_ < 25.0f) return PetMood::SAD;
-    if (moodLevel_ < 50.0f) return PetMood::ANGRY;
-    if (moodLevel_ < 75.0f) return PetMood::NEUTRAL;
-    return PetMood::HAPPY;
 }
 
 float Pet::getScale() const {
