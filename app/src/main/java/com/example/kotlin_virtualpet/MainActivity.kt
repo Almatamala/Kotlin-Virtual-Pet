@@ -6,11 +6,7 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.FrameLayout
-import android.widget.ImageButton
-import android.widget.LinearLayout
-import android.widget.Switch
+import android.widget.*
 import com.google.androidgamesdk.GameActivity
 
 class MainActivity : GameActivity() {
@@ -23,7 +19,6 @@ class MainActivity : GameActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Botón de tuerca
         val btnSettings = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_manage)
             setBackgroundColor(Color.TRANSPARENT)
@@ -48,29 +43,40 @@ class MainActivity : GameActivity() {
         }
 
         rootLayout.addView(controlsLayout, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
 
-        // Switch VHS
+        // --- SECCIÓN VHS ---
         val vhsSwitch = Switch(this).apply {
-            text = "Efecto VHS"
+            text = "MODO VHS"
             setTextColor(Color.WHITE)
+            textSize = 20f
             isChecked = isVHSEnabledNative()
+            setPadding(0, 0, 0, 80)
             setOnCheckedChangeListener { _, checked -> setVHSEffectNative(checked) }
         }
         controlsLayout.addView(vhsSwitch)
 
-        // Botones de color
-        val btnRed = Button(this).apply {
-            text = "Rojo"
-            setOnClickListener { setPetColorNative(1.0f, 0.0f, 0.0f) }
+        // --- SECCIÓN COLORES ---
+        val colorLabel = TextView(this).apply {
+            text = "COLOR DE LA MASCOTA"
+            setTextColor(Color.GRAY)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 20)
         }
-        controlsLayout.addView(btnRed)
+        controlsLayout.addView(colorLabel)
 
-        val btnWhite = Button(this).apply {
-            text = "Blanco"
-            setOnClickListener { setPetColorNative(1.0f, 1.0f, 1.0f) }
-        }
-        controlsLayout.addView(btnWhite)
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+
+        // Botón Blanco
+        row1.addView(createColorBtn(Color.WHITE, 1f, 1f, 1f))
+        // Botón Rojo
+        row1.addView(createColorBtn(Color.RED, 1f, 0f, 0f))
+        // Botón Cian (Muy VHS)
+        row1.addView(createColorBtn(Color.CYAN, 0f, 1f, 1f))
+        // Botón Verde
+        row1.addView(createColorBtn(Color.GREEN, 0f, 1f, 0f))
+
+        controlsLayout.addView(row1)
 
         // Botón cerrar (X)
         val btnClose = ImageButton(this).apply {
@@ -86,6 +92,18 @@ class MainActivity : GameActivity() {
         btnClose.setOnClickListener { configDialog.dismiss() }
         configDialog.setContentView(rootLayout)
         configDialog.show()
+    }
+
+    // Función auxiliar para crear botones de colores rápidamente
+    private fun createColorBtn(colorInt: Int, r: Float, g: Float, b: Float): View {
+        return Button(this).apply {
+            setBackgroundColor(colorInt)
+            layoutParams = LinearLayout.LayoutParams(150, 150).apply { setMargins(10, 10, 10, 10) }
+            setOnClickListener {
+                setPetColorNative(r, g, b)
+                Toast.makeText(context, "Color actualizado", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     external fun setVHSEffectNative(enabled: Boolean)

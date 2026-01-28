@@ -131,7 +131,7 @@ float sdQuadraticCircle(in vec2 p) {
 }
 
 void main() {
-    // 1. Jitter solo si VHS está activo
+    // 1. Jitter horizontal sutil
     float jitter = uVHSEnabled ? (noise(vec2(uTime, vLocalPos.y * 10.0)) - 0.5) * 0.008 : 0.0;
     vec2 pMod = vLocalPos + vec2(jitter, 0.0);
 
@@ -157,23 +157,28 @@ void main() {
     vec3 finalColor = uColor;
 
     if (uVHSEnabled) {
-        // Solo aplicamos estática y línea si el switch está ON
         float grain = noise(vLocalPos * 3.0) * 0.05;
 
-        // Aberración (desfase azul)
+        // 1. Lógica de la línea con STEP
+        float trackingPos = fract(vLocalPos.y * 0.4 + uTime * 0.05);
+
+        // --- CAMBIO A STEP ---
+        // step(0.025, dist) devuelve 0 si la distancia es menor a 0.025.
+        // Al restar 1.0 - step, creamos una franja sólida de 0.05 de grosor total.
+        float trackingBar = 1.0 - step(0.025, abs(trackingPos - 0.5));
+
+        // 2. Look base del render
         float bDist = uIsMouth ? dist : sdQuadraticCircle((pMod + vec2(0.015, 0.0)) / vec2(uWidth, uHeight));
         float b = 1.0 - smoothstep(-0.02, 0.02, bDist);
-
-        // Línea de tracking
-        float trackingPos = fract(vLocalPos.y * 0.4 + uTime * 0.05);
-        float trackingBar = smoothstep(0.2, 0.0, abs(trackingPos - 0.5));
-
-        // Mezclamos con estética VHS
         finalColor = vec3(finalColor.r * 0.1, finalColor.g * 0.8, b * 0.9);
         finalColor += grain;
-        finalColor *= (1.0 - trackingBar * 0.6);
+
+        // 3. Lógica de color (Blanco 0.3 y Brillo 0.3)
+        vec3 darkenedBar = mix(uColor, vec3(1.0), 0.2) * 0.6;
+
+        // Aplicamos la barra
+        finalColor = mix(finalColor, darkenedBar, trackingBar);
     }
-    // Si uVHSEnabled es false, simplemente usa uColor puro
 
     if (alpha < 0.01) discard;
     FragColor = vec4(finalColor * 1.6, alpha);
@@ -264,6 +269,8 @@ void Renderer::initEyes() {
     float eyeH = 0.25f;
     float eyeSpacing = 0.45f;
     float eyeY = 0;
+    float thickness = 0.15;
+
 
     leftEye_ = new Eye(-eyeSpacing, eyeY, eyeW, eyeH);
     rightEye_ = new Eye(eyeSpacing, eyeY, eyeW, eyeH);
@@ -283,48 +290,56 @@ void Renderer::initEyes() {
 void Renderer::renderEyes() {
     if (eyeShaderProgram_ == 0) return;
 
-    // Conectamos con las variables globales actualizadas por el JNI en main.cpp
+    // 1. Acceder a las variables globales definidas en main.cpp
+    // Estas son las que el JNI modifica desde el menú de Kotlin
     extern bool g_vhsEnabled;
     extern float g_petColor[3];
 
-    // 1. Gestión del tiempo
+    // 2. Gestión del tiempo para los Shaders (Efecto de ruido y tracking)
     static float totalTime = 0.0f;
     auto currentTime = std::chrono::high_resolution_clock::now();
     float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
     lastFrameTime_ = currentTime;
     totalTime += deltaTime;
 
-    // 2. Actualizamos la mascota
+    // 3. Actualizar lógica de la mascota (parpadeo, mirada, etc.)
     pet_.update(deltaTime);
 
-    // 3. Activamos shader y enviamos Uniforms del menú
+    // 4. Activar el Shader y pasar los Uniforms del menú
     glUseProgram(eyeShaderProgram_);
 
+    // Pasamos el tiempo total para que las animaciones de ruido no se detengan
     glUniform1f(glGetUniformLocation(eyeShaderProgram_, "uTime"), totalTime);
+
+    // Pasamos el interruptor VHS (0 = Apagado, 1 = Encendido)
     glUniform1i(glGetUniformLocation(eyeShaderProgram_, "uVHSEnabled"), g_vhsEnabled ? 1 : 0);
+
+    // Pasamos el color RGB elegido
     glUniform3f(glGetUniformLocation(eyeShaderProgram_, "uColor"), g_petColor[0], g_petColor[1], g_petColor[2]);
 
-    // 4. Parámetros de transformación
+    // 5. Obtener datos de estado de la mascota
     float lookX = pet_.getLookAtX();
     float lookY = pet_.getLookAtY();
     float scale = pet_.getScale();
     float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
 
-    // 5. Posiciones base
+    // 6. Configuración de posiciones
     float eyeSpacing = 0.45f;
     float eyeY = 0.15f;
-    float mouthBaseY = -0.1f;
+    float mouthBaseY = -0.1f; // Ajustado para que la boca esté centrada abajo
 
-    // 6. Render de Ojos
+    // 7. Renderizado de los Ojos
     if (leftEye_ && rightEye_) {
+        // Ojo Izquierdo
         leftEye_->setPosition(-eyeSpacing + lookX, eyeY + lookY);
         leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
 
+        // Ojo Derecho
         rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
         rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
     }
 
-    // 7. Render de Boca
+    // 8. Renderizado de la Boca (con un ligero efecto de profundidad parallax)
     if (mouth_) {
         float mouthLookX = lookX * 0.5f;
         float mouthLookY = lookY * 0.5f;

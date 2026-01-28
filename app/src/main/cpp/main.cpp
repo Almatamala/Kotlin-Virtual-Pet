@@ -3,25 +3,22 @@
 #include <game-activity/GameActivity.h>
 #include "Renderer.h"
 
-// 1. Variables globales (Deben estar aquí para que Renderer.cpp pueda verlas)
+// VARIABLES GLOBALES DE ESTADO
 bool g_vhsEnabled = false;
 float g_petColor[3] = {1.0f, 1.0f, 1.0f};
 
 extern "C" {
 
-// JNI: Cambiar estado VHS
 JNIEXPORT void JNICALL
 Java_com_example_kotlin_1virtualpet_MainActivity_setVHSEffectNative(JNIEnv* env, jobject obj, jboolean enabled) {
     g_vhsEnabled = enabled;
 }
 
-// JNI: Leer estado VHS
 JNIEXPORT jboolean JNICALL
 Java_com_example_kotlin_1virtualpet_MainActivity_isVHSEnabledNative(JNIEnv* env, jobject obj) {
     return (jboolean)g_vhsEnabled;
 }
 
-// JNI: Cambiar Color
 JNIEXPORT void JNICALL
 Java_com_example_kotlin_1virtualpet_MainActivity_setPetColorNative(JNIEnv* env, jobject obj, jfloat r, jfloat g, jfloat b) {
     g_petColor[0] = r;

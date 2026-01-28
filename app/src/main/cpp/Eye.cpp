@@ -1,7 +1,7 @@
 #include "Eye.h"
 
-Eye::Eye(float x, float y, float w, float h, float t)
-        : posX(x), posY(y), width(w), height(h), thickness(t), outlineVBO(0), vertexCount(4) {}
+Eye::Eye(float x, float y, float w, float h)
+        : posX(x), posY(y), width(w), height(h), outlineVBO(0) {}
 
 Eye::~Eye() { if (outlineVBO) glDeleteBuffers(1, &outlineVBO); }
 
@@ -19,7 +19,7 @@ void Eye::init() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void Eye::draw(GLuint shaderProgram, float eyeOpenness, float scale) {
+void Eye::draw(GLuint shaderProgram, float eyeOpenness, float scale) const {
     glUseProgram(shaderProgram);
 
     glUniform1i(glGetUniformLocation(shaderProgram, "uIsMouth"), 0); // Modo Ojo
