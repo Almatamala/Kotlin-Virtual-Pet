@@ -19,15 +19,14 @@ void Eye::init() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void Eye::draw(GLuint shaderProgram, float eyeOpenness, float scale) const {
+void Eye::draw(GLuint shaderProgram, float eyeOpenness, float scale, const float* color) const {
     glUseProgram(shaderProgram);
 
     glUniform1i(glGetUniformLocation(shaderProgram, "uIsMouth"), 0); // Modo Ojo
     glUniform2f(glGetUniformLocation(shaderProgram, "uPosition"), posX, posY);
     glUniform1f(glGetUniformLocation(shaderProgram, "uScale"), scale);
     glUniform1f(glGetUniformLocation(shaderProgram, "uEyeOpenness"), eyeOpenness);
-    glUniform3f(glGetUniformLocation(shaderProgram, "uColor"), 0.0f, 1.0f, 1.0f);
-
+    glUniform3f(glGetUniformLocation(shaderProgram, "uColor"), color[0], color[1], color[2]);
     // Enviamos dimensiones al shader
     glUniform1f(glGetUniformLocation(shaderProgram, "uWidth"), width);
     glUniform1f(glGetUniformLocation(shaderProgram, "uHeight"), height);

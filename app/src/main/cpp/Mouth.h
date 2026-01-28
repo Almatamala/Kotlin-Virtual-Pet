@@ -10,7 +10,7 @@ public:
     ~Mouth();
 
     void init();
-    void draw(GLuint shaderProgram) const;
+    void draw(GLuint shaderProgram, const float* color) const;
     void setPosition(float x, float y);
     float getX() const { return posX; }
     float getY() const { return posY; }

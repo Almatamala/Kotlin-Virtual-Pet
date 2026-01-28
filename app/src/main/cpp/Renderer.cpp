@@ -70,9 +70,8 @@ uniform float uThickness;
 uniform bool uIsMouth;
 uniform float uEyeOpenness;
 uniform float uTime;
-uniform bool uVHSEnabled; // Agregado para el menú
+uniform bool uVHSEnabled;
 
-// Uniforms para dimensiones dinámicas
 uniform float uWidth;
 uniform float uHeight;
 uniform float uMouthWidth;
@@ -109,7 +108,7 @@ float sdBezier(in vec2 pos, in vec2 A, in vec2 B, in vec2 C) {
     return sqrt(res);
 }
 
-// Función para ojos Quadratic Circle
+// Función optimizada Quadratic Circle
 float sdQuadraticCircle(in vec2 p) {
     p = abs(p); if( p.y>p.x ) p=p.yx;
     float a = p.x-p.y;
@@ -138,7 +137,6 @@ void main() {
     float alpha = 0.0;
     float dist = 0.0;
 
-    // Lógica de forma (Boca u Ojos)
     if (uIsMouth) {
         vec2 p = pMod; p.x = abs(p.x);
         vec2 A = vec2(0.0, 0.0);
@@ -153,31 +151,29 @@ void main() {
         alpha = 1.0 - smoothstep(-0.02, 0.02, dist);
     }
 
-    // --- COLOR FINAL ---
     vec3 finalColor = uColor;
 
     if (uVHSEnabled) {
         float grain = noise(vLocalPos * 3.0) * 0.05;
 
-        // 1. Lógica de la línea con STEP
+        // 1. Tracking Line con STEP (bordes duros)
         float trackingPos = fract(vLocalPos.y * 0.4 + uTime * 0.05);
-
-        // --- CAMBIO A STEP ---
-        // step(0.025, dist) devuelve 0 si la distancia es menor a 0.025.
-        // Al restar 1.0 - step, creamos una franja sólida de 0.05 de grosor total.
         float trackingBar = 1.0 - step(0.025, abs(trackingPos - 0.5));
 
-        // 2. Look base del render
+        // 2. Base VHS basada en uColor (eliminamos el hardcode de cian)
         float bDist = uIsMouth ? dist : sdQuadraticCircle((pMod + vec2(0.015, 0.0)) / vec2(uWidth, uHeight));
-        float b = 1.0 - smoothstep(-0.02, 0.02, bDist);
-        finalColor = vec3(finalColor.r * 0.1, finalColor.g * 0.8, b * 0.9);
+        float bAlpha = 1.0 - smoothstep(-0.02, 0.02, bDist);
+
+        // Mantenemos tu color pero con el sangrado de canal azul para el look analógico
+        finalColor = vec3(uColor.r, uColor.g, max(uColor.b, bAlpha * 0.5));
+
+        // 3. Lógica de color de la barra (Mix con blanco 0.3 y brillo 0.3)
+        // He usado 0.3 y 0.3 como pediste para asegurar visibilidad
+        vec3 barColor = mix(uColor, vec3(1.0), 0.2) * 0.6;
+
+        // Aplicamos la barra y el grano
+        finalColor = mix(finalColor, barColor, trackingBar);
         finalColor += grain;
-
-        // 3. Lógica de color (Blanco 0.3 y Brillo 0.3)
-        vec3 darkenedBar = mix(uColor, vec3(1.0), 0.2) * 0.6;
-
-        // Aplicamos la barra
-        finalColor = mix(finalColor, darkenedBar, trackingBar);
     }
 
     if (alpha < 0.01) discard;
@@ -332,11 +328,11 @@ void Renderer::renderEyes() {
     if (leftEye_ && rightEye_) {
         // Ojo Izquierdo
         leftEye_->setPosition(-eyeSpacing + lookX, eyeY + lookY);
-        leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+        leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale, g_petColor);
 
         // Ojo Derecho
         rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
-        rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale);
+        rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale, g_petColor);
     }
 
     // 8. Renderizado de la Boca (con un ligero efecto de profundidad parallax)
@@ -344,7 +340,7 @@ void Renderer::renderEyes() {
         float mouthLookX = lookX * 0.5f;
         float mouthLookY = lookY * 0.5f;
         mouth_->setPosition(0.0f + mouthLookX, mouthBaseY + mouthLookY);
-        mouth_->draw(eyeShaderProgram_);
+        mouth_->draw(eyeShaderProgram_, g_petColor);
     }
 }
 

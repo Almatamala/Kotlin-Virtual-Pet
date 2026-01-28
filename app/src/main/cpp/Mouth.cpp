@@ -26,12 +26,11 @@ void Mouth::init() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void Mouth::draw(GLuint shaderProgram) const {
+void Mouth::draw(GLuint shaderProgram, const float* color) const {
     glUseProgram(shaderProgram);
 
     glUniform1i(glGetUniformLocation(shaderProgram, "uIsMouth"), 1);
-    glUniform3f(glGetUniformLocation(shaderProgram, "uColor"), 0.0f, 1.0f, 1.0f);
-    glUniform1f(glGetUniformLocation(shaderProgram, "uThickness"), 0.01f);
+    glUniform3f(glGetUniformLocation(shaderProgram, "uColor"), color[0], color[1], color[2]);    glUniform1f(glGetUniformLocation(shaderProgram, "uThickness"), 0.01f);
     glUniform2f(glGetUniformLocation(shaderProgram, "uPosition"), posX, posY);
     glUniform1f(glGetUniformLocation(shaderProgram, "uScale"), 1.0f);
 

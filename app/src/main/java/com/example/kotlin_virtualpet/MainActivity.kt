@@ -8,8 +8,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import com.google.androidgamesdk.GameActivity
+import com.skydoves.colorpickerview.ColorPickerDialog
+import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
 
 class MainActivity : GameActivity() {
+    private var currentColorInt: Int = Color.WHITE
     companion object {
         init {
             System.loadLibrary("kotlin_virtualpet")
@@ -20,7 +23,7 @@ class MainActivity : GameActivity() {
         super.onCreate(savedInstanceState)
 
         val btnSettings = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_manage)
+            setImageResource(R.drawable.settings_icon)
             setBackgroundColor(Color.TRANSPARENT)
         }
 
@@ -56,27 +59,28 @@ class MainActivity : GameActivity() {
         }
         controlsLayout.addView(vhsSwitch)
 
-        // --- SECCIÓN COLORES ---
+        // --- SECCIÓN SELECTOR DE COLOR ---
         val colorLabel = TextView(this).apply {
-            text = "COLOR DE LA MASCOTA"
+            text = "PERSONALIZAR COLOR"
             setTextColor(Color.GRAY)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 20)
+            setPadding(0, 0, 0, 40)
         }
         controlsLayout.addView(colorLabel)
 
-        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-
-        // Botón Blanco
-        row1.addView(createColorBtn(Color.WHITE, 1f, 1f, 1f))
-        // Botón Rojo
-        row1.addView(createColorBtn(Color.RED, 1f, 0f, 0f))
-        // Botón Cian (Muy VHS)
-        row1.addView(createColorBtn(Color.CYAN, 0f, 1f, 1f))
-        // Botón Verde
-        row1.addView(createColorBtn(Color.GREEN, 0f, 1f, 0f))
-
-        controlsLayout.addView(row1)
+        // Botón para abrir el selector
+        val btnPickColor = Button(this).apply {
+            text = "ELEGIR COLOR"
+            setBackgroundColor(Color.DKGRAY)
+            setTextColor(Color.WHITE)
+            setOnClickListener {
+                // Aquí lanzamos un selector simple basado en un array de predefinidos
+                // o podrías integrar un "Color Wheel" si añades la dependencia.
+                // Por ahora, usemos un Grid de colores expandido:
+                showProColorPicker()
+            }
+        }
+        controlsLayout.addView(btnPickColor)
 
         // Botón cerrar (X)
         val btnClose = ImageButton(this).apply {
@@ -94,16 +98,31 @@ class MainActivity : GameActivity() {
         configDialog.show()
     }
 
-    // Función auxiliar para crear botones de colores rápidamente
-    private fun createColorBtn(colorInt: Int, r: Float, g: Float, b: Float): View {
-        return Button(this).apply {
-            setBackgroundColor(colorInt)
-            layoutParams = LinearLayout.LayoutParams(150, 150).apply { setMargins(10, 10, 10, 10) }
-            setOnClickListener {
+    private fun showProColorPicker() {
+        ColorPickerDialog.Builder(this)
+            .setTitle("Color de la Mascota")
+            // --- AQUÍ ESTÁ EL TRUCO: Establecemos el color inicial ---
+            .setPreferenceName("MyColorPicker") // Opcional: lo guarda incluso si cierras la app
+            .setPositiveButton("Confirmar", ColorEnvelopeListener { envelope, _ ->
+                // 1. Guardamos el color para la próxima vez que abramos el menú
+                currentColorInt = envelope.color
+
+                // 2. Convertimos a Float para C++
+                val r = Color.red(currentColorInt) / 255f
+                val g = Color.green(currentColorInt) / 255f
+                val b = Color.blue(currentColorInt) / 255f
+
                 setPetColorNative(r, g, b)
-                Toast.makeText(context, "Color actualizado", Toast.LENGTH_SHORT).show()
+            })
+            .setNegativeButton("Cancelar") { dialog, _ -> dialog.dismiss() }
+            .attachAlphaSlideBar(false)
+            .attachBrightnessSlideBar(true)
+            .apply {
+                // Sincronizamos el punto del selector con el color guardado
+                val colorPickerView = colorPickerView
+                colorPickerView.setInitialColor(currentColorInt)
             }
-        }
+            .show()
     }
 
     external fun setVHSEffectNative(enabled: Boolean)
