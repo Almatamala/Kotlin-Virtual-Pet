@@ -10,12 +10,10 @@ public:
     Pet(float initialMood = 50.0f);
     void update(float deltaTime);
 
-    // Gestión de entrada
     void onHold(float deltaTime);
     void onRelease();
     void setLookAtTarget(float x, float y);
 
-    // Getters de mirada (devuelven la posición ya suavizada y limitada)
     float getLookAtX() const { return currentLookX_; }
     float getLookAtY() const { return currentLookY_; }
 
@@ -23,7 +21,7 @@ public:
     float getScale() const;
 
     void setMoodLevel(float level);
-    PetMood getMoodState() const;
+    float getMoodLevel() const { return moodLevel_; }
 
 private:
     float moodLevel_;
@@ -32,7 +30,6 @@ private:
     bool isBlinking_;
     bool isBeingHeld_;
 
-    // Variables para el suavizado y los límites proporcionales
     float targetLookX_, targetLookY_;
     float currentLookX_, currentLookY_;
 };
