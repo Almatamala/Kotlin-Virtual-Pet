@@ -1,25 +1,42 @@
-package com.example.kotlin_virtualpet
+package com.example.kotlin_virtualpet // Asegúrate de que este paquete coincida con tu proyecto
 
+import android.app.AlertDialog
 import android.app.Dialog
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.content.res.ResourcesCompat
 import com.google.androidgamesdk.GameActivity
 import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
 
 class MainActivity : GameActivity() {
+
+    // Variable para persistir el color seleccionado (Blanco por defecto)
     private var currentColorInt: Int = Color.WHITE
+
     companion object {
         init {
+            // Verifica que el nombre de la librería coincida con tu CMakeLists.txt
             System.loadLibrary("kotlin_virtualpet")
         }
     }
 
+    // Declaración de funciones nativas
+    external fun setVHSEffectNative(enabled: Boolean)
+    external fun isVHSEnabledNative(): Boolean
+    external fun setPetColorNative(r: Float, g: Float, b: Float)
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // FORZAR MODO NOCHE SIEMPRE
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+
         super.onCreate(savedInstanceState)
 
         val btnSettings = ImageButton(this).apply {
@@ -37,20 +54,39 @@ class MainActivity : GameActivity() {
     }
 
     private fun showConfigurationScreen() {
+        // Intentar cargar la fuente Bitcount desde app/res/font/bitcount.ttf
+        val bitcount = try {
+            ResourcesCompat.getFont(this, R.font.bitcountsingle)
+        } catch (e: Exception) {
+            Typeface.MONOSPACE
+        }
+
         val configDialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
-        val rootLayout = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#121212")) }
+
+        val rootLayout = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#121212"))
+        }
 
         val controlsLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            setPadding(50, 50, 50, 50)
         }
 
-        rootLayout.addView(controlsLayout, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        // Título del menú
+        val titleMenu = TextView(this).apply {
+            text = "CONFIGURACIÓN"
+            typeface = bitcount
+            setTextColor(Color.WHITE)
+            textSize = 28f
+            setPadding(0, 0, 0, 100)
+        }
+        controlsLayout.addView(titleMenu)
 
-        // --- SECCIÓN VHS ---
+        // MODO VHS Switch
         val vhsSwitch = Switch(this).apply {
-            text = "MODO VHS"
+            text = "MODO VHS    "
+            typeface = bitcount
             setTextColor(Color.WHITE)
             textSize = 20f
             isChecked = isVHSEnabledNative()
@@ -59,75 +95,86 @@ class MainActivity : GameActivity() {
         }
         controlsLayout.addView(vhsSwitch)
 
-        // --- SECCIÓN SELECTOR DE COLOR ---
-        val colorLabel = TextView(this).apply {
-            text = "PERSONALIZAR COLOR"
-            setTextColor(Color.GRAY)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 40)
-        }
-        controlsLayout.addView(colorLabel)
-
-        // Botón para abrir el selector
+        // Botón para elegir color
         val btnPickColor = Button(this).apply {
             text = "ELEGIR COLOR"
-            setBackgroundColor(Color.DKGRAY)
+            typeface = bitcount
             setTextColor(Color.WHITE)
-            setOnClickListener {
-                // Aquí lanzamos un selector simple basado en un array de predefinidos
-                // o podrías integrar un "Color Wheel" si añades la dependencia.
-                // Por ahora, usemos un Grid de colores expandido:
-                showProColorPicker()
-            }
+            setBackgroundColor(Color.parseColor("#1F1F1F"))
+            setPadding(40, 40, 40, 40)
+            setOnClickListener { showProColorPicker(bitcount) }
         }
         controlsLayout.addView(btnPickColor)
 
-        // Botón cerrar (X)
-        val btnClose = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+        // Botón Volver
+        val btnClose = Button(this).apply {
+            text = "VOLVER"
+            typeface = bitcount
+            setTextColor(Color.GRAY)
             setBackgroundColor(Color.TRANSPARENT)
-            setColorFilter(Color.WHITE)
+            setOnClickListener { configDialog.dismiss() }
         }
-        rootLayout.addView(btnClose, FrameLayout.LayoutParams(180, 180).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            setMargins(0, 0, 50, 50)
-        })
+        val closeParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        ).apply { setMargins(0, 0, 0, 100) }
 
-        btnClose.setOnClickListener { configDialog.dismiss() }
+        rootLayout.addView(controlsLayout)
+        rootLayout.addView(btnClose, closeParams)
+
         configDialog.setContentView(rootLayout)
         configDialog.show()
     }
 
-    private fun showProColorPicker() {
-        ColorPickerDialog.Builder(this)
-            .setTitle("Color de la Mascota")
-            // --- AQUÍ ESTÁ EL TRUCO: Establecemos el color inicial ---
-            .setPreferenceName("MyColorPicker") // Opcional: lo guarda incluso si cierras la app
+    private fun showProColorPicker(bitcountFont: Typeface?) {
+        val builder = ColorPickerDialog.Builder(this)
+            .setTitle("COLOR DE LA MASCOTA")
+            .setPreferenceName("MyColorPicker")
             .setPositiveButton("Confirmar", ColorEnvelopeListener { envelope, _ ->
-                // 1. Guardamos el color para la próxima vez que abramos el menú
                 currentColorInt = envelope.color
 
-                // 2. Convertimos a Float para C++
                 val r = Color.red(currentColorInt) / 255f
                 val g = Color.green(currentColorInt) / 255f
                 val b = Color.blue(currentColorInt) / 255f
 
                 setPetColorNative(r, g, b)
             })
-            .setNegativeButton("Cancelar") { dialog, _ -> dialog.dismiss() }
+            .setNegativeButton("Cancelar") { d, _ -> d.dismiss() }
             .attachAlphaSlideBar(false)
             .attachBrightnessSlideBar(true)
             .apply {
-                // Sincronizamos el punto del selector con el color guardado
+                // Personalización del fondo interno del selector
                 val colorPickerView = colorPickerView
                 colorPickerView.setInitialColor(currentColorInt)
+                colorPickerView.setBackgroundColor(Color.parseColor("#121212"))
             }
-            .show()
-    }
 
-    external fun setVHSEffectNative(enabled: Boolean)
-    external fun isVHSEnabledNative(): Boolean
-    external fun setPetColorNative(r: Float, g: Float, b: Float)
+        val dialog = builder.create()
+
+        // Forzar fondo oscuro en el contenedor del diálogo
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.parseColor("#121212")))
+
+        dialog.show()
+
+        // Aplicar fuente Bitcount al título y botones del diálogo
+        val titleId = resources.getIdentifier("alertTitle", "id", "android")
+        if (titleId > 0) {
+            dialog.findViewById<TextView>(titleId)?.apply {
+                typeface = bitcountFont
+                setTextColor(Color.WHITE)
+            }
+        }
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
+            setTextColor(Color.CYAN)
+            typeface = bitcountFont
+        }
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).apply {
+            setTextColor(Color.GRAY)
+            typeface = bitcountFont
+        }
+    }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)

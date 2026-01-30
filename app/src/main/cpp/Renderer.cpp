@@ -157,7 +157,7 @@ void main() {
         float grain = noise(vLocalPos * 3.0) * 0.05;
 
         // 1. Tracking Line con STEP (bordes duros)
-        float trackingPos = fract(vLocalPos.y * 0.4 + uTime * 0.05);
+        float trackingPos = fract(vLocalPos.y * 0.4 + uTime * 0.08);
         float trackingBar = 1.0 - step(0.025, abs(trackingPos - 0.5));
 
         // 2. Base VHS basada en uColor (eliminamos el hardcode de cian)
@@ -167,8 +167,7 @@ void main() {
         // Mantenemos tu color pero con el sangrado de canal azul para el look analógico
         finalColor = vec3(uColor.r, uColor.g, max(uColor.b, bAlpha * 0.5));
 
-        // 3. Lógica de color de la barra (Mix con blanco 0.3 y brillo 0.3)
-        // He usado 0.3 y 0.3 como pediste para asegurar visibilidad
+        // 3. Lógica de color de la barra (Mix con blanco 0.2 y brillo 0.6)
         vec3 barColor = mix(uColor, vec3(1.0), 0.2) * 0.6;
 
         // Aplicamos la barra y el grano
