@@ -15,6 +15,8 @@ import androidx.core.content.res.ResourcesCompat
 import com.google.androidgamesdk.GameActivity
 import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
+import androidx.core.graphics.toColorInt
+import androidx.core.graphics.drawable.toDrawable
 
 class MainActivity : GameActivity() {
 
@@ -64,7 +66,7 @@ class MainActivity : GameActivity() {
         val configDialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
 
         val rootLayout = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#121212"))
+            setBackgroundColor("#121212".toColorInt())
         }
 
         val controlsLayout = LinearLayout(this).apply {
@@ -100,7 +102,7 @@ class MainActivity : GameActivity() {
             text = "ELEGIR COLOR"
             typeface = bitcount
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#1F1F1F"))
+            setBackgroundColor("#1F1F1F".toColorInt())
             setPadding(40, 40, 40, 40)
             setOnClickListener { showProColorPicker(bitcount) }
         }
@@ -147,13 +149,13 @@ class MainActivity : GameActivity() {
                 // Personalización del fondo interno del selector
                 val colorPickerView = colorPickerView
                 colorPickerView.setInitialColor(currentColorInt)
-                colorPickerView.setBackgroundColor(Color.parseColor("#121212"))
+                colorPickerView.setBackgroundColor("#121212".toColorInt())
             }
 
         val dialog = builder.create()
 
         // Forzar fondo oscuro en el contenedor del diálogo
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.parseColor("#121212")))
+        dialog.window?.setBackgroundDrawable("#121212".toColorInt().toDrawable())
 
         dialog.show()
 
