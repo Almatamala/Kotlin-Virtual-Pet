@@ -12,7 +12,7 @@ public:
     ~Eye();
 
     void init();
-    void draw(GLuint shaderProgram, float eyeOpenness, float scale, const float* color) const;
+    void draw(GLuint shaderProgram, float eyeOpenness, float scale, float moodLevel, const float* color) const;
     void setPosition(float x, float y);
 
 private:

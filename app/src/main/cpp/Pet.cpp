@@ -1,8 +1,9 @@
 #include "Pet.hpp"
 #include <cmath>
+#include <algorithm>
 
 Pet::Pet(float initialMood)
-        : moodLevel_(initialMood),
+        : moodLevel_(50.0f), // Iniciamos en 50 para pruebas
           time_(0.0f),
           blinkTimer_(0.0f),
           isBlinking_(false),
@@ -24,7 +25,7 @@ void Pet::update(float deltaTime) {
         blinkTimer_ = 0.0f;
     }
 
-    // 2. Lógica de Interpolación (Suavizado y Retorno)
+    // 2. Lógica de Interpolación de mirada (Tu lógica original)
     float finalTargetX = isBeingHeld_ ? targetLookX_ : 0.0f;
     float finalTargetY = isBeingHeld_ ? targetLookY_ : 0.0f;
 
@@ -41,7 +42,8 @@ void Pet::setLookAtTarget(float x, float y) {
 
 void Pet::onHold(float deltaTime) {
     isBeingHeld_ = true;
-    setMoodLevel(moodLevel_ + (10.0f * deltaTime)); // Aumenta el humor numérico
+    // Aumenta el ánimo mientras acaricias (3 puntos por segundo)
+    setMoodLevel(moodLevel_ + (3.0f * deltaTime));
 }
 
 void Pet::onRelease() {
@@ -49,7 +51,7 @@ void Pet::onRelease() {
 }
 
 void Pet::setMoodLevel(float level) {
-    moodLevel_ = std::clamp(level, 0.0f, 100.0f);
+    moodLevel_ = std::clamp(level, 20.0f, 100.0f); // Mínimo 10, Máximo 100
 }
 
 float Pet::getScale() const {

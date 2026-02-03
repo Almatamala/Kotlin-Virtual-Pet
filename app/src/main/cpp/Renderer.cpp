@@ -76,6 +76,7 @@ uniform float uWidth;
 uniform float uHeight;
 uniform float uMouthWidth;
 uniform float uMouthHeight;
+uniform float uMoodOffset; // <--- NUEVA: 0.0 (feliz/abierto) a 1.0 (triste/cerrado)
 
 float noise(vec2 p) {
     return fract(sin(dot(p, vec2(12.9898, 78.233) + uTime * 0.1)) * 43758.5453123);
@@ -145,8 +146,18 @@ void main() {
         dist = sdBezier(p, A, B, C);
         alpha = 1.0 - smoothstep(uThickness - 0.01, uThickness + 0.01, dist);
     } else {
+        // --- LOGICA DE OJOS ---
         vec2 p = pMod / vec2(uWidth, uHeight);
+
+        // 1. Recorte de Ánimo: Cierra de arriba hacia abajo
+        // p.y va de -1.0 a 1.0. El techo es 1.0.
+        // Si moodOffset es 1.0 (triste), el limite es 1.0 - 2.0 = -1.0 (cerrado)
+        float topLimit = 1.0 - (uMoodOffset * 2.0);
+        if(p.y > topLimit) discard;
+
+        // 2. Recorte de Parpadeo: Cierre simétrico (Tu lógica original)
         if(abs(p.y) > uEyeOpenness) discard;
+
         dist = sdQuadraticCircle(p);
         alpha = 1.0 - smoothstep(-0.02, 0.02, dist);
     }
@@ -156,21 +167,15 @@ void main() {
     if (uVHSEnabled) {
         float grain = noise(vLocalPos * 3.0) * 0.05;
 
-        // 1. Tracking Line con STEP (bordes duros)
         float trackingPos = fract(vLocalPos.y * 0.4 + uTime * 0.08);
         float trackingBar = 1.0 - step(0.025, abs(trackingPos - 0.5));
 
-        // 2. Base VHS basada en uColor (eliminamos el hardcode de cian)
         float bDist = uIsMouth ? dist : sdQuadraticCircle((pMod + vec2(0.015, 0.0)) / vec2(uWidth, uHeight));
         float bAlpha = 1.0 - smoothstep(-0.02, 0.02, bDist);
 
-        // Mantenemos tu color pero con el sangrado de canal azul para el look analógico
         finalColor = vec3(uColor.r, uColor.g, max(uColor.b, bAlpha * 0.5));
-
-        // 3. Lógica de color de la barra (Mix con blanco 0.2 y brillo 0.6)
         vec3 barColor = mix(uColor, vec3(1.0), 0.2) * 0.6;
 
-        // Aplicamos la barra y el grano
         finalColor = mix(finalColor, barColor, trackingBar);
         finalColor += grain;
     }
@@ -297,25 +302,18 @@ void Renderer::renderEyes() {
     lastFrameTime_ = currentTime;
     totalTime += deltaTime;
 
-    // 3. Actualizar lógica de la mascota (parpadeo, mirada, etc.)
     pet_.update(deltaTime);
 
-    // 4. Activar el Shader y pasar los Uniforms del menú
     glUseProgram(eyeShaderProgram_);
-
-    // Pasamos el tiempo total para que las animaciones de ruido no se detengan
     glUniform1f(glGetUniformLocation(eyeShaderProgram_, "uTime"), totalTime);
-
-    // Pasamos el interruptor VHS (0 = Apagado, 1 = Encendido)
     glUniform1i(glGetUniformLocation(eyeShaderProgram_, "uVHSEnabled"), g_vhsEnabled ? 1 : 0);
-
-    // Pasamos el color RGB elegido
     glUniform3f(glGetUniformLocation(eyeShaderProgram_, "uColor"), g_petColor[0], g_petColor[1], g_petColor[2]);
 
     // 5. Obtener datos de estado de la mascota
     float lookX = pet_.getLookAtX();
     float lookY = pet_.getLookAtY();
     float scale = pet_.getScale();
+    float mood = pet_.getMoodLevel();
     float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
 
     // 6. Configuración de posiciones
@@ -325,13 +323,12 @@ void Renderer::renderEyes() {
 
     // 7. Renderizado de los Ojos
     if (leftEye_ && rightEye_) {
-        // Ojo Izquierdo
         leftEye_->setPosition(-eyeSpacing + lookX, eyeY + lookY);
-        leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale, g_petColor);
+        // Pasamos mood a la función draw
+        leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale, mood, g_petColor);
 
-        // Ojo Derecho
         rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
-        rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale, g_petColor);
+        rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale, mood, g_petColor);
     }
 
     // 8. Renderizado de la Boca (con un ligero efecto de profundidad parallax)
