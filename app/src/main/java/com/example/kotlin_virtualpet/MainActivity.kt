@@ -1,49 +1,61 @@
-package com.example.kotlin_virtualpet // Asegúrate de que este paquete coincida con tu proyecto
+package com.example.kotlin_virtualpet
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.AlertDialog
 import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.LinearInterpolator
 import android.widget.*
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.res.ResourcesCompat
+import androidx.core.graphics.toColorInt
+import androidx.core.graphics.drawable.toDrawable
 import com.google.androidgamesdk.GameActivity
 import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
-import androidx.core.graphics.toColorInt
-import androidx.core.graphics.drawable.toDrawable
 
 class MainActivity : GameActivity() {
 
-    // Variable para persistir el color seleccionado (Blanco por defecto)
     private var currentColorInt: Int = Color.WHITE
+    private var loadingOverlay: FrameLayout? = null
+    private var isRendererReady = false
 
     companion object {
         init {
-            // Verifica que el nombre de la librería coincida con tu CMakeLists.txt
             System.loadLibrary("kotlin_virtualpet")
         }
     }
 
-    // Declaración de funciones nativas
     external fun setVHSEffectNative(enabled: Boolean)
     external fun isVHSEnabledNative(): Boolean
     external fun setPetColorNative(r: Float, g: Float, b: Float)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // FORZAR MODO NOCHE SIEMPRE
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
-
         super.onCreate(savedInstanceState)
+
+        // Mostrar pantalla de carga al inicio
+        showLoadingScreen()
+
+        // El renderer se inicializará en segundo plano
+        // Ocultar la pantalla de carga después de que esté listo
+        Handler(Looper.getMainLooper()).postDelayed({
+            hideLoadingScreen()
+            isRendererReady = true
+        }, 500) // Dar tiempo para la primera inicialización
 
         val btnSettings = ImageButton(this).apply {
             setImageResource(R.drawable.settings_icon)
             setBackgroundColor(Color.TRANSPARENT)
+            alpha = 0f // Inicialmente invisible
         }
 
         val params = FrameLayout.LayoutParams(180, 180).apply {
@@ -52,11 +64,118 @@ class MainActivity : GameActivity() {
         }
 
         addContentView(btnSettings, params)
+
+        // Animar entrada del botón después de que cargue
+        Handler(Looper.getMainLooper()).postDelayed({
+            btnSettings.animate()
+                .alpha(1f)
+                .setDuration(300)
+                .start()
+        }, 600)
+
         btnSettings.setOnClickListener { showConfigurationScreen() }
     }
 
+    override fun onResume() {
+        super.onResume()
+
+        // Mostrar pantalla de carga al reanudar (si el renderer no está listo)
+        if (!isRendererReady) {
+            showLoadingScreen()
+
+            // Dar tiempo para que el contexto GL se estabilice
+            Handler(Looper.getMainLooper()).postDelayed({
+                hideLoadingScreen()
+                isRendererReady = true
+            }, 250) // Delay más corto al reanudar
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        isRendererReady = false
+    }
+
+    private fun showLoadingScreen() {
+        if (loadingOverlay != null) return // Ya existe
+
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor("#121212".toColorInt())
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        // Contenedor central
+        val contentLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+
+        // Texto "Cargando..."
+        val loadingText = TextView(this).apply {
+            text = "Cargando..."
+            textSize = 24f
+            setTextColor(Color.WHITE)
+            typeface = try {
+                ResourcesCompat.getFont(context, R.font.bitcountsingle)
+            } catch (e: Exception) {
+                Typeface.MONOSPACE
+            }
+        }
+
+        // Barra de progreso con animación
+        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 100
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(400, 20).apply {
+                topMargin = 40
+            }
+        }
+
+        // Animar la barra de progreso
+        val animator = ObjectAnimator.ofInt(progressBar, "progress", 0, 100).apply {
+            duration = 400 // Duración de la animación
+            interpolator = LinearInterpolator()
+            start()
+        }
+
+        contentLayout.addView(loadingText)
+        contentLayout.addView(progressBar)
+
+        val centerParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        overlay.addView(contentLayout, centerParams)
+
+        loadingOverlay = overlay
+        addContentView(overlay, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+    }
+
+    private fun hideLoadingScreen() {
+        loadingOverlay?.let { overlay ->
+            // Animar fade out
+            overlay.animate()
+                .alpha(0f)
+                .setDuration(300)
+                .withEndAction {
+                    (overlay.parent as? ViewGroup)?.removeView(overlay)
+                    loadingOverlay = null
+                }
+                .start()
+        }
+    }
+
     private fun showConfigurationScreen() {
-        // Intentar cargar la fuente Bitcount desde app/res/font/bitcount.ttf
         val bitcount = try {
             ResourcesCompat.getFont(this, R.font.bitcountsingle)
         } catch (e: Exception) {
@@ -75,7 +194,6 @@ class MainActivity : GameActivity() {
             setPadding(50, 50, 50, 50)
         }
 
-        // Título del menú
         val titleMenu = TextView(this).apply {
             text = "CONFIGURACIÓN"
             typeface = bitcount
@@ -85,7 +203,6 @@ class MainActivity : GameActivity() {
         }
         controlsLayout.addView(titleMenu)
 
-        // MODO VHS Switch
         val vhsSwitch = Switch(this).apply {
             text = "MODO VHS    "
             typeface = bitcount
@@ -97,7 +214,6 @@ class MainActivity : GameActivity() {
         }
         controlsLayout.addView(vhsSwitch)
 
-        // Botón para elegir color
         val btnPickColor = Button(this).apply {
             text = "ELEGIR COLOR"
             typeface = bitcount
@@ -108,7 +224,6 @@ class MainActivity : GameActivity() {
         }
         controlsLayout.addView(btnPickColor)
 
-        // Botón Volver
         val btnClose = Button(this).apply {
             text = "VOLVER"
             typeface = bitcount
@@ -146,20 +261,15 @@ class MainActivity : GameActivity() {
             .attachAlphaSlideBar(false)
             .attachBrightnessSlideBar(true)
             .apply {
-                // Personalización del fondo interno del selector
                 val colorPickerView = colorPickerView
                 colorPickerView.setInitialColor(currentColorInt)
                 colorPickerView.setBackgroundColor("#121212".toColorInt())
             }
 
         val dialog = builder.create()
-
-        // Forzar fondo oscuro en el contenedor del diálogo
         dialog.window?.setBackgroundDrawable("#121212".toColorInt().toDrawable())
-
         dialog.show()
 
-        // Aplicar fuente Bitcount al título y botones del diálogo
         val titleId = resources.getIdentifier("alertTitle", "id", "android")
         if (titleId > 0) {
             dialog.findViewById<TextView>(titleId)?.apply {

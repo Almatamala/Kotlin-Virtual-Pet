@@ -5,6 +5,8 @@
 #include <memory>
 #include <vector>
 #include <android/imagedecoder.h>
+#include <thread>
+#include <chrono>
 
 #include "AndroidOut.h"
 #include "Shader.h"
@@ -190,13 +192,32 @@ static constexpr float kProjectionNearPlane = -1.f;
 static constexpr float kProjectionFarPlane = 1.f;
 
 Renderer::~Renderer() {
-    delete leftEye_;
-    delete rightEye_;
-    delete mouth_;
-    if (eyeShaderProgram_) {
-        glDeleteProgram(eyeShaderProgram_);
+    aout << "=== Destroying Renderer ===" << std::endl;
+
+    // Limpiar componentes de la cara ANTES de destruir el contexto
+    if (leftEye_) {
+        delete leftEye_;
+        leftEye_ = nullptr;
+    }
+    if (rightEye_) {
+        delete rightEye_;
+        rightEye_ = nullptr;
+    }
+    if (mouth_) {
+        delete mouth_;
+        mouth_ = nullptr;
     }
 
+    // Limpiar shader program
+    if (eyeShaderProgram_) {
+        glDeleteProgram(eyeShaderProgram_);
+        eyeShaderProgram_ = 0;
+    }
+
+    // Limpiar shader principal
+    shader_.reset();
+
+    // Limpiar contexto EGL
     if (display_ != EGL_NO_DISPLAY) {
         eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (context_ != EGL_NO_CONTEXT) {
@@ -210,6 +231,8 @@ Renderer::~Renderer() {
         eglTerminate(display_);
         display_ = EGL_NO_DISPLAY;
     }
+
+    aout << "=== Renderer destroyed ===" << std::endl;
 }
 
 GLuint Renderer::createEyeShaderProgram() {
@@ -247,7 +270,7 @@ GLuint Renderer::createEyeShaderProgram() {
     if (!success) {
         char infoLog[512];
         glGetProgramInfoLog(program, 512, nullptr, infoLog);
-        aout << "Eye Shader Program Link Error: " << infoLog << std::endl;
+        aout << "Shader Program Linking Error: " << infoLog << std::endl;
         return 0;
     }
 
@@ -261,16 +284,17 @@ void Renderer::initEyes() {
     aout << "=== Initializing Face Components ===" << std::endl;
 
     eyeShaderProgram_ = createEyeShaderProgram();
-    if (eyeShaderProgram_ == 0) return;
+    if (eyeShaderProgram_ == 0) {
+        aout << "ERROR: Failed to create eye shader program" << std::endl;
+        return;
+    }
 
     // --- CONFIGURACIÓN DE OJOS ---
-    // Parámetros: X, Y, Width, Height, Thickness
+    // Parámetros: X, Y, Width, Height
     float eyeW = 0.35f;
     float eyeH = 0.25f;
     float eyeSpacing = 0.45f;
     float eyeY = 0;
-    float thickness = 0.15;
-
 
     leftEye_ = new Eye(-eyeSpacing, eyeY, eyeW, eyeH);
     rightEye_ = new Eye(eyeSpacing, eyeY, eyeW, eyeH);
@@ -280,7 +304,6 @@ void Renderer::initEyes() {
 
     // --- CONFIGURACIÓN DE BOCA ---
     // Parámetros: X, Y, Width, Height
-    // Estos valores definen el "origen" y el tamaño de la curva :3
     mouth_ = new Mouth(0.0f, -0.0f, 0.3f, 0.2f);
     mouth_->init();
 
@@ -288,18 +311,25 @@ void Renderer::initEyes() {
 }
 
 void Renderer::renderEyes() {
-    if (eyeShaderProgram_ == 0) return;
+    // Verificación crítica: no renderizar si los componentes no están inicializados
+    if (eyeShaderProgram_ == 0 || !leftEye_ || !rightEye_ || !mouth_) {
+        aout << "WARNING: Cannot render eyes - components not initialized properly" << std::endl;
+        return;
+    }
 
     // 1. Acceder a las variables globales definidas en main.cpp
-    // Estas son las que el JNI modifica desde el menú de Kotlin
     extern bool g_vhsEnabled;
     extern float g_petColor[3];
 
-    // 2. Gestión del tiempo para los Shaders (Efecto de ruido y tracking)
+    // 2. Gestión del tiempo para los Shaders
     static float totalTime = 0.0f;
     auto currentTime = std::chrono::high_resolution_clock::now();
     float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
     lastFrameTime_ = currentTime;
+
+    // Limitar deltaTime para evitar saltos enormes después de pausas
+    if (deltaTime > 0.1f) deltaTime = 0.016f; // ~60fps fallback
+
     totalTime += deltaTime;
 
     pet_.update(deltaTime);
@@ -309,68 +339,79 @@ void Renderer::renderEyes() {
     glUniform1i(glGetUniformLocation(eyeShaderProgram_, "uVHSEnabled"), g_vhsEnabled ? 1 : 0);
     glUniform3f(glGetUniformLocation(eyeShaderProgram_, "uColor"), g_petColor[0], g_petColor[1], g_petColor[2]);
 
-    // 5. Obtener datos de estado de la mascota
+    // 3. Obtener datos de estado de la mascota
     float lookX = pet_.getLookAtX();
     float lookY = pet_.getLookAtY();
     float scale = pet_.getScale();
     float mood = pet_.getMoodLevel();
     float eyeOpenness = pet_.isBlinking() ? 0.1f : 1.0f;
 
-    // 6. Configuración de posiciones
+    // 4. Configuración de posiciones
     float eyeSpacing = 0.45f;
     float eyeY = 0.15f;
-    float mouthBaseY = -0.1f; // Ajustado para que la boca esté centrada abajo
+    float mouthBaseY = -0.1f;
 
-    // 7. Renderizado de los Ojos
-    if (leftEye_ && rightEye_) {
-        leftEye_->setPosition(-eyeSpacing + lookX, eyeY + lookY);
-        // Pasamos mood a la función draw
-        leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale, mood, g_petColor);
+    // 5. Renderizado de los Ojos
+    leftEye_->setPosition(-eyeSpacing + lookX, eyeY + lookY);
+    leftEye_->draw(eyeShaderProgram_, eyeOpenness, scale, mood, g_petColor);
 
-        rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
-        rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale, mood, g_petColor);
-    }
+    rightEye_->setPosition(eyeSpacing + lookX, eyeY + lookY);
+    rightEye_->draw(eyeShaderProgram_, eyeOpenness, scale, mood, g_petColor);
 
-    // 8. Renderizado de la Boca (con un ligero efecto de profundidad parallax)
-    if (mouth_) {
-        float mouthLookX = lookX * 0.5f;
-        float mouthLookY = lookY * 0.5f;
-        mouth_->setPosition(0.0f + mouthLookX, mouthBaseY + mouthLookY);
-        mouth_->draw(eyeShaderProgram_, g_petColor);
-    }
+    // 6. Renderizado de la Boca
+    float mouthLookX = lookX * 0.5f;
+    float mouthLookY = lookY * 0.5f;
+    mouth_->setPosition(0.0f + mouthLookX, mouthBaseY + mouthLookY);
+    mouth_->draw(eyeShaderProgram_, g_petColor);
 }
 
 void Renderer::render() {
+    // CRÍTICO: Verificar que tenemos una superficie válida antes de renderizar
+    if (display_ == EGL_NO_DISPLAY || surface_ == EGL_NO_SURFACE || context_ == EGL_NO_CONTEXT) {
+        aout << "WARNING: Skipping render - invalid EGL state" << std::endl;
+        return;
+    }
+
     updateRenderArea();
 
     if (shaderNeedsNewProjectionMatrix_) {
-        float projectionMatrix[16] = {0};
-        Utility::buildOrthographicMatrix(
-                projectionMatrix,
-                kProjectionHalfHeight,
-                float(width_) / height_,
-                kProjectionNearPlane,
-                kProjectionFarPlane);
+        if (shader_) {
+            float projectionMatrix[16] = {0};
+            Utility::buildOrthographicMatrix(
+                    projectionMatrix,
+                    kProjectionHalfHeight,
+                    float(width_) / height_,
+                    kProjectionNearPlane,
+                    kProjectionFarPlane);
 
-        shader_->setProjectionMatrix(projectionMatrix);
-        shaderNeedsNewProjectionMatrix_ = false;
+            shader_->setProjectionMatrix(projectionMatrix);
+            shaderNeedsNewProjectionMatrix_ = false;
+        }
     }
 
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Importante habilitar Blending para que el smoothstep del shader funcione correctamente
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    if (leftEye_ && rightEye_) {
+    // Renderizar ojos solo si están inicializados
+    if (leftEye_ && rightEye_ && mouth_) {
         renderEyes();
     }
 
     auto swapResult = eglSwapBuffers(display_, surface_);
-    assert(swapResult == EGL_TRUE);
+    if (swapResult != EGL_TRUE) {
+        aout << "ERROR: eglSwapBuffers failed" << std::endl;
+    }
 }
 
 void Renderer::initRenderer() {
+    aout << "=== Initializing Renderer ===" << std::endl;
+
+    // CRÍTICO: Deshabilitar asserts de GL durante inicialización
+    // Esto previene crashes por errores GL residuales del contexto anterior
+    Utility::g_skipGLAsserts = true;
+
     constexpr EGLint attribs[] = {
             EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
             EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
@@ -382,7 +423,15 @@ void Renderer::initRenderer() {
     };
 
     auto display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    eglInitialize(display, nullptr, nullptr);
+    if (display == EGL_NO_DISPLAY) {
+        aout << "ERROR: Failed to get EGL display" << std::endl;
+        return;
+    }
+
+    if (eglInitialize(display, nullptr, nullptr) == EGL_FALSE) {
+        aout << "ERROR: Failed to initialize EGL" << std::endl;
+        return;
+    }
 
     EGLint numConfigs;
     eglChooseConfig(display, attribs, nullptr, 0, &numConfigs);
@@ -405,30 +454,77 @@ void Renderer::initRenderer() {
             });
 
     EGLSurface surface = eglCreateWindowSurface(display, config, app_->window, nullptr);
+    if (surface == EGL_NO_SURFACE) {
+        aout << "ERROR: Failed to create EGL surface" << std::endl;
+        eglTerminate(display);
+        return;
+    }
+
     EGLint contextAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
     EGLContext context = eglCreateContext(display, config, nullptr, contextAttribs);
+    if (context == EGL_NO_CONTEXT) {
+        aout << "ERROR: Failed to create EGL context" << std::endl;
+        eglDestroySurface(display, surface);
+        eglTerminate(display);
+        return;
+    }
 
     auto madeCurrent = eglMakeCurrent(display, surface, surface, context);
-    assert(madeCurrent);
+    if (!madeCurrent) {
+        aout << "ERROR: Failed to make EGL context current, error: " << eglGetError() << std::endl;
+        eglDestroyContext(display, context);
+        eglDestroySurface(display, surface);
+        eglTerminate(display);
+        return;
+    }
+
+    // CRÍTICO: Limpiar cualquier error GL residual del contexto anterior
+    aout << "Clearing any residual GL errors..." << std::endl;
+    int errorCount = 0;
+    while (GLenum error = glGetError()) {
+        if (error != GL_NO_ERROR) {
+            aout << "Cleared residual GL error: 0x" << std::hex << error << std::dec << std::endl;
+            errorCount++;
+            if (errorCount > 10) {
+                aout << "ERROR: Too many GL errors, aborting" << std::endl;
+                eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                eglDestroyContext(display, context);
+                eglDestroySurface(display, surface);
+                eglTerminate(display);
+                return;
+            }
+        }
+    }
+    aout << "GL errors cleared (count: " << errorCount << ")" << std::endl;
 
     display_ = display;
     surface_ = surface;
     context_ = context;
 
-    width_ = -1;
-    height_ = -1;
+    width_ = 0;
+    height_ = 0;
 
+    aout << "Creating main shader..." << std::endl;
     shader_ = std::unique_ptr<Shader>(
             Shader::loadShader(vertex, fragment, "inPosition", "inUV", "uProjection"));
-    assert(shader_);
+
+    if (!shader_) {
+        aout << "ERROR: Failed to load main shader" << std::endl;
+        return;
+    }
+
     shader_->activate();
 
     glClearColor(BACKGROUNDBLACK);
-
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     initEyes();
+
+    // Re-habilitar asserts de GL ahora que la inicialización terminó
+    Utility::g_skipGLAsserts = false;
+
+    aout << "=== Renderer initialized successfully ===" << std::endl;
 }
 
 void Renderer::updateRenderArea() {
@@ -454,38 +550,32 @@ void Renderer::handleInput() {
         auto &motionEvent = inputBuffer->motionEvents[i];
         auto action = motionEvent.action;
 
-        // 1. Obtenemos las coordenadas del toque (primer dedo)
         auto &pointer = motionEvent.pointers[0];
         float rawX = GameActivityPointerAxes_getX(&pointer);
         float rawY = GameActivityPointerAxes_getY(&pointer);
 
-        // 2. Normalizamos las coordenadas al rango [-1.0, 1.0] de OpenGL
-        // width_ y height_ son las dimensiones de la superficie de renderizado
+        // Normalizar coordenadas al rango de OpenGL [-1, 1]
         float normX = (2.0f * rawX / (float)width_) - 1.0f;
         float normY = 1.0f - (2.0f * rawY / (float)height_);
 
         switch (action & AMOTION_EVENT_ACTION_MASK) {
             case AMOTION_EVENT_ACTION_DOWN:
             case AMOTION_EVENT_ACTION_MOVE: {
-                // Mientras se mueve o se mantiene presionado
                 auto currentTime = std::chrono::high_resolution_clock::now();
                 float deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime_).count();
+                if (deltaTime > 0.1f) deltaTime = 0.016f; // Limitar delta
 
-                // Actualizamos el punto hacia donde debe mirar
                 pet_.setLookAtTarget(normX, normY);
-                // Notificamos que el dedo sigue presionado para activar 'isLooking'
                 pet_.onHold(deltaTime);
                 break;
             }
             case AMOTION_EVENT_ACTION_UP:
             case AMOTION_EVENT_ACTION_CANCEL:
-                // Al soltar el dedo, la mascota deja de mirar
                 pet_.onRelease();
                 break;
         }
     }
 
-    // Limpiamos los buffers de entrada para el siguiente frame
     android_app_clear_motion_events(inputBuffer);
     android_app_clear_key_events(inputBuffer);
 }

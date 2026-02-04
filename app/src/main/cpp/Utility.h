@@ -7,7 +7,16 @@ class Utility {
 public:
     static bool checkAndLogGlError(bool alwaysLog = false);
 
-    static inline void assertGlError() { assert(checkAndLogGlError()); }
+    // Variable para deshabilitar asserts durante inicialización crítica
+    static bool g_skipGLAsserts;
+
+    static inline void assertGlError() {
+        if (g_skipGLAsserts) {
+            checkAndLogGlError(); // Solo log, no assert
+        } else {
+            assert(checkAndLogGlError());
+        }
+    }
 
     /**
      * Generates an orthographic projection matrix given the half height, aspect ratio, near, and far

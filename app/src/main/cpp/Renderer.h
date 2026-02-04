@@ -4,8 +4,8 @@
 #include <EGL/egl.h>
 #include <memory>
 #include <chrono>
+#include <vector>
 
-#include "Model.h"
 #include "Shader.h"
 #include "Eye.h"
 #include "Mouth.h"
@@ -30,7 +30,8 @@ public:
             rightEye_(nullptr),
             mouth_(nullptr),
             eyeShaderProgram_(0),
-            pet_(50.0f) {
+            pet_(50.0f),
+            totalTime_(0.0f) {
         initRenderer();
         lastFrameTime_ = std::chrono::high_resolution_clock::now();
     }
@@ -68,12 +69,6 @@ private:
     void updateRenderArea();
 
     /*!
-     * Creates the models for this sample. You'd likely load a scene configuration from a file or
-     * use some other setup logic in your full game.
-     */
-    void createModels();
-
-    /*!
      * Initializes the eye rendering system
      */
     void initEyes();
@@ -98,7 +93,6 @@ private:
     bool shaderNeedsNewProjectionMatrix_;
 
     std::unique_ptr<Shader> shader_;
-    std::vector<Model> models_;
 
     // Sistema de ojos animados
     Eye* leftEye_;
@@ -106,6 +100,7 @@ private:
     Mouth* mouth_;
     GLuint eyeShaderProgram_;
     Pet pet_;
+    float totalTime_;
     std::chrono::high_resolution_clock::time_point lastFrameTime_;
 };
 

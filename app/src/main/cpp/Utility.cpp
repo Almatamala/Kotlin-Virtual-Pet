@@ -5,6 +5,9 @@
 
 #define CHECK_ERROR(e) case e: aout << "GL Error: "#e << std::endl; break;
 
+// Variable global para controlar asserts durante inicialización
+bool Utility::g_skipGLAsserts = false;
+
 bool Utility::checkAndLogGlError(bool alwaysLog) {
     GLenum error = glGetError();
     if (error == GL_NO_ERROR) {
